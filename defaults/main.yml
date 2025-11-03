@@ -1,0 +1,46 @@
+---
+# Default variables for ollama_mcphost role
+# Override these in your playbook or via -e flag
+
+# Model selection
+ollama_model: "mistral:7b"
+
+# Ollama configuration
+ollama_service_port: 11434
+ollama_host: "localhost"
+
+# mcphost configuration directory
+mcphost_config_dir: "{{ ansible_env.HOME }}/.config/mcphost"
+
+# MCP server configuration (optional - add your MCP servers here)
+mcp_servers: []
+# Example:
+# mcp_servers:
+#   - name: "risu-insights"
+#     path: "/home/user/risu-insights/risu_insights_mcp.py"
+#     project_root: "/home/user/risu-insights"
+#     description: "RISU diagnostic system"
+#   - name: "another-mcp"
+#     path: "/path/to/another_mcp.py"
+#     description: "Another MCP server"
+
+# Model generation parameters
+temperature: 0.3
+max_tokens: 2048
+top_p: 0.9
+top_k: 40
+max_steps: 20
+enable_streaming: true
+enable_debug: false
+
+# Package installation
+install_packages: true
+packages_to_install:
+  - ollama
+  - mcphost
+
+# Cleanup configuration
+cleanup_models: true
+cleanup_config: true
+cleanup_data: true
+

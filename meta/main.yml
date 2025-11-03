@@ -1,0 +1,42 @@
+---
+galaxy_info:
+  author: Harshvardhan Sharma
+  description: Ansible role to set up Ollama and mcphost for Model Context Protocol integration
+  company: 
+  
+  license: MIT
+  
+  min_ansible_version: "2.9"
+  
+  platforms:
+    - name: OpenSuse
+      versions:
+        - all
+    - name: SLES
+      versions:
+        - all
+    - name: EL
+      versions:
+        - 8
+        - 9
+    - name: Fedora
+      versions:
+        - all
+    - name: Ubuntu
+      versions:
+        - all
+    - name: Debian
+      versions:
+        - all
+  
+  galaxy_tags:
+    - ai
+    - llm
+    - ollama
+    - mcp
+    - mcphost
+    - automation
+    - system
+
+dependencies: []
+
