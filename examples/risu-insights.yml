@@ -1,0 +1,10 @@
+---
+- name: RISU Insights client bootstrap
+  hosts: localhost
+  become: true
+  roles:
+    - role: ansible-ollama_mcphost
+      risu_mcp_host: localhost
+      risu_mcp_port: 8000
+      ollama_pull_models:
+        - "mistral:7b"

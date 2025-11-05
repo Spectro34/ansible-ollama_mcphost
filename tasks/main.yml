@@ -1,233 +1,157 @@
 ---
-# Main tasks for ollama_mcphost role
+# Main orchestration for the ansible-ollama_mcphost role.
 
-# ========================================
-# CLEANUP TASKS (run with --tags cleanup)
-# ========================================
+- name: Install Ollama stack
+  when: ollama_state == 'present'
+  tags: ['ollama', 'install']
+  block:
+    - name: Ensure Ollama dependencies are present
+      ansible.builtin.package:
+        name: "{{ ollama_dependencies }}"
+        state: present
+      become: true
+      when: ollama_install_dependencies and ollama_dependencies | length > 0
 
-- name: Stop Ollama service
-  systemd:
-    name: ollama
-    state: stopped
-    enabled: no
-  become: yes
-  ignore_errors: yes
-  tags: [never, cleanup]
+    - name: Ensure systemd override directory exists
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ ollama_service_name }}.service.d"
+        state: directory
+        mode: "0755"
+      become: true
 
-- name: Remove Ollama models
-  command: "ollama rm {{ ollama_model }}"
-  register: model_remove
-  failed_when: false
-  changed_when: model_remove.rc == 0
-  when: cleanup_models
-  tags: [never, cleanup]
+    - name: Install Ollama
+      ansible.builtin.shell: |
+        set -euo pipefail
+        curl -fsSL {{ ollama_install_script }} | sh
+      args:
+        executable: /bin/bash
+        creates: "{{ ollama_binary_path }}"
+      become: true
 
-- name: Uninstall packages
-  package:
-    name: "{{ packages_to_install }}"
-    state: absent
-  become: yes
-  tags: [never, cleanup]
+    - name: Configure GPU drop-in
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ ollama_service_name }}.service.d/override.conf"
+        content: |
+          [Service]
+          Environment=OLLAMA_USE_GPU=1
+{% if ollama_gpu_runtime %}
+          Environment=OLLAMA_GPU_DRIVER={{ ollama_gpu_runtime }}
+{% endif %}
+        mode: "0644"
+      become: true
+      notify: Reload Ollama daemon
+      when: ollama_gpu_enabled
 
-- name: Remove mcphost configuration
-  file:
-    path: "{{ ansible_env.HOME }}/.mcphost.yml"
-    state: absent
-  when: cleanup_config
-  tags: [never, cleanup]
+    - name: Remove GPU drop-in when disabled
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ ollama_service_name }}.service.d/override.conf"
+        state: absent
+      become: true
+      notify: Reload Ollama daemon
+      when: not ollama_gpu_enabled
 
-- name: Remove Ollama data directory
-  file:
-    path: "{{ ansible_env.HOME }}/.ollama"
-    state: absent
-  when: cleanup_data
-  tags: [never, cleanup]
+    - name: Ensure Ollama service is running
+      ansible.builtin.systemd:
+        name: "{{ ollama_service_name }}"
+        state: started
+        enabled: true
+      become: true
+      ignore_errors: true
 
-- name: Remove mcphost config directory
-  file:
-    path: "{{ mcphost_config_dir }}"
-    state: absent
-  when: cleanup_config
-  tags: [never, cleanup]
+    - name: Pull requested Ollama models
+      ansible.builtin.command: "{{ ollama_binary_path }} pull {{ item }}"
+      loop: "{{ ollama_pull_models }}"
+      when: ollama_pull_models | length > 0
 
-- name: Cleanup complete
-  debug:
-    msg: |
-      ✓ Cleanup complete
-      - Ollama service stopped
-      - Packages uninstalled
-      - Configuration removed
-      - Data directories cleaned
-  tags: [never, cleanup]
+- name: Remove Ollama stack
+  when: ollama_state == 'absent'
+  tags: ['ollama', 'cleanup']
+  block:
+    - name: Stop Ollama service
+      ansible.builtin.systemd:
+        name: "{{ ollama_service_name }}"
+        state: stopped
+        enabled: false
+      become: true
+      ignore_errors: true
 
-# ========================================
-# INSTALLATION TASKS (default)
-# ========================================
+    - name: Remove GPU drop-in
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ ollama_service_name }}.service.d/override.conf"
+        state: absent
+      become: true
+      notify: Reload Ollama daemon
 
-- name: Install Ollama and mcphost
-  package:
-    name: "{{ packages_to_install }}"
-    state: present
-  become: yes
-  when: install_packages
-  register: package_install
-  tags: [install]
+    - name: Remove Ollama models
+      ansible.builtin.command: "{{ ollama_binary_path }} rm --all"
+      when: ollama_cleanup_models
+      ignore_errors: true
 
-- name: Display installation result
-  debug:
-    msg: "✓ Installed: {{ packages_to_install | join(', ') }}"
-  when: package_install is changed
-  tags: [install]
+    - name: Uninstall Ollama binary
+      ansible.builtin.command: "{{ ollama_binary_path }} uninstall"
+      become: true
+      when: ollama_cleanup_binary
+      ignore_errors: true
 
-- name: Ensure Ollama service is running
-  systemd:
-    name: ollama
-    state: started
-    enabled: yes
-  become: yes
-  tags: [service]
+    - name: Remove Ollama data directory
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/.ollama"
+        state: absent
+      when: ollama_cleanup_data
 
-- name: Wait for Ollama to be ready
-  wait_for:
-    host: "{{ ollama_host }}"
-    port: "{{ ollama_service_port }}"
-    timeout: 30
-  tags: [service, verify]
+- name: Install mcphost client
+  when: mcphost_state == 'present'
+  tags: ['mcphost', 'install', 'config']
+  block:
+    - name: Install mcphost via pip
+      ansible.builtin.pip:
+        name: "{{ mcphost_pip_package }}"
+        executable: pip3
 
-# ========================================
-# MODEL TASKS
-# ========================================
+    - name: Compute endpoint list
+      ansible.builtin.set_fact:
+        mcphost_endpoints_effective: >-
+          {{
+            (mcphost_endpoints + [default_endpoint])
+            if risu_mcp_configure_endpoint else mcphost_endpoints
+          }}
+      vars:
+        default_endpoint:
+          name: "{{ risu_mcp_name }}"
+          endpoint: "http://{{ risu_mcp_host }}:{{ risu_mcp_port }}"
+          description: "{{ risu_mcp_description }}"
 
-- name: Check if model is already downloaded
-  command: ollama list
-  register: ollama_models
-  changed_when: false
-  tags: [model, verify]
+    - name: Ensure mcphost config directory exists
+      ansible.builtin.file:
+        path: "{{ mcphost_config_path | dirname }}"
+        state: directory
+        mode: "0755"
 
-- name: Pull Ollama model
-  command: "ollama pull {{ ollama_model }}"
-  when: ollama_model not in ollama_models.stdout
-  register: model_pull
-  async: 600
-  poll: 10
-  tags: [model]
+    - name: Render mcphost configuration
+      ansible.builtin.template:
+        src: mcphost-config.yml.j2
+        dest: "{{ mcphost_config_path }}"
+        mode: "0644"
 
-- name: Display model info
-  command: "ollama show {{ ollama_model }}"
-  register: model_info
-  changed_when: false
-  failed_when: false
-  tags: [model, verify]
+    - name: Display mcphost hint
+      ansible.builtin.debug:
+        msg: |
+          mcphost is ready. Start it with:
 
-- name: Show model details
-  debug:
-    msg: |
-      ✓ Model ready: {{ ollama_model }}
-      Details: {{ model_info.stdout_lines[:5] | join('\n') if model_info.rc == 0 else 'Model info unavailable' }}
-  tags: [model, verify]
+            {{ mcphost_executable }}
 
-# ========================================
-# VERIFICATION TASKS
-# ========================================
+- name: Remove mcphost client
+  when: mcphost_state == 'absent'
+  tags: ['mcphost', 'cleanup']
+  block:
+    - name: Remove mcphost configuration
+      ansible.builtin.file:
+        path: "{{ mcphost_config_path }}"
+        state: absent
 
-- name: Verify mcphost is installed
-  command: which mcphost
-  register: mcphost_check
-  changed_when: false
-  tags: [verify]
-
-- name: Get mcphost version
-  command: mcphost --version
-  register: mcphost_version
-  changed_when: false
-  tags: [verify]
-
-- name: Display mcphost status
-  debug:
-    msg: "✓ mcphost: {{ mcphost_version.stdout | default('Installed') }}"
-  tags: [verify]
-
-# ========================================
-# CONFIGURATION TASKS
-# ========================================
-
-- name: Create mcphost config directory
-  file:
-    path: "{{ mcphost_config_dir }}"
-    state: directory
-    mode: '0755'
-  tags: [config]
-
-- name: Create mcphost configuration from template
-  template:
-    src: mcphost-config.yml.j2
-    dest: "{{ ansible_env.HOME }}/.mcphost.yml"
-    mode: '0644'
-  register: config_created
-  tags: [config]
-
-- name: Display configuration location
-  debug:
-    msg: "✓ mcphost config created: {{ ansible_env.HOME }}/.mcphost.yml ({{ mcp_servers | length }} MCP server(s) configured)"
-  tags: [config, verify]
-
-# ========================================
-# TESTING TASKS
-# ========================================
-
-- name: Test Ollama API
-  uri:
-    url: "http://{{ ollama_host }}:{{ ollama_service_port }}/api/tags"
-    method: GET
-  register: ollama_api
-  failed_when: false
-  ignore_errors: yes
-  tags: [verify]
-
-- name: Verify Ollama is responding
-  debug:
-    msg: "✓ Ollama API is accessible"
-  when: 
-    - ollama_api is defined
-    - ollama_api.status is defined
-    - ollama_api.status == 200
-  tags: [verify]
-
-# ========================================
-# SUMMARY
-# ========================================
-
-- name: Display setup summary
-  debug:
-    msg: |
-      ╔══════════════════════════════════════════════════════════╗
-      ║  Ollama + MCPHost Setup Complete                         ║
-      ╠══════════════════════════════════════════════════════════╣
-      ║  Ollama: http://{{ ollama_host }}:{{ ollama_service_port }}
-      ║  Model: {{ ollama_model }}
-      ║  mcphost: {{ mcphost_version.stdout | default('Installed') }}
-      ║  Config: {{ ansible_env.HOME }}/.mcphost.yml
-      ║  
-      ║  Parameters:
-      ║    Temperature: {{ temperature }}
-      ║    Max Tokens: {{ max_tokens }}
-      ║    Max Steps: {{ max_steps }}
-      ║  
-      ║  MCP Servers: {{ mcp_servers | length }}
-      ╚══════════════════════════════════════════════════════════╝
-  tags: [always]
-
-- name: Instructions for using mcphost
-  debug:
-    msg: |
-      
-      🚀 Ready to use! Start mcphost:
-      
-        mcphost
-      
-      Test commands:
-        > /servers    # List configured MCP servers
-        > /tools      # Show available MCP tools
-        > Hello       # Chat with the AI
-  tags: [always]
-
+    - name: Uninstall mcphost via pip
+      ansible.builtin.pip:
+        name: "{{ mcphost_pip_package }}"
+        state: absent
+        executable: pip3
+      when: mcphost_cleanup_package

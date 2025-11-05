@@ -1,46 +1,66 @@
 ---
-# Default variables for ollama_mcphost role
-# Override these in your playbook or via -e flag
+# Default variables for the ansible-ollama_mcphost role.
+# Override these per playbook or with --extra-vars as needed.
 
-# Model selection
-ollama_model: "mistral:7b"
-
+# ---------------------------------------------------------------------------
 # Ollama configuration
+# ---------------------------------------------------------------------------
+
+ollama_state: present                  # present / absent
+ollama_install_dependencies: true
+ollama_dependencies:
+  - curl
+  - python3
+  - python3-pip
+
+ollama_install_script: https://raw.githubusercontent.com/ollama/ollama/main/scripts/install.sh
+ollama_binary_path: /usr/bin/ollama
+ollama_service_name: ollama
+
+ollama_host: localhost
 ollama_service_port: 11434
-ollama_host: "localhost"
+ollama_model: "mistral:7b"
+ollama_pull_models: []                # e.g. ["qwen2.5:32b"]
 
-# mcphost configuration directory
-mcphost_config_dir: "{{ ansible_env.HOME }}/.config/mcphost"
+ollama_gpu_enabled: false
+ollama_gpu_runtime: ""               # e.g. cuda, rocm
 
-# MCP server configuration (optional - add your MCP servers here)
-mcp_servers: []
-# Example:
-# mcp_servers:
-#   - name: "risu-insights"
-#     path: "/home/user/risu-insights/risu_insights_mcp.py"
-#     project_root: "/home/user/risu-insights"
-#     description: "RISU diagnostic system"
-#   - name: "another-mcp"
-#     path: "/path/to/another_mcp.py"
-#     description: "Another MCP server"
+ollama_cleanup_models: true           # Applies when ollama_state=absent
+ollama_cleanup_data: true
+ollama_cleanup_config: true
+ollama_cleanup_binary: true
 
-# Model generation parameters
-temperature: 0.3
-max_tokens: 2048
-top_p: 0.9
-top_k: 40
-max_steps: 20
-enable_streaming: true
-enable_debug: false
+# ---------------------------------------------------------------------------
+# mcphost configuration
+# ---------------------------------------------------------------------------
 
-# Package installation
-install_packages: true
-packages_to_install:
-  - ollama
-  - mcphost
+mcphost_state: present                 # present / absent
+mcphost_pip_package: mcphost
+mcphost_executable: mcphost
+mcphost_config_path: "{{ ansible_env.HOME }}/.mcphost.yml"
 
-# Cleanup configuration
-cleanup_models: true
-cleanup_config: true
-cleanup_data: true
+mcphost_temperature: 0.3
+mcphost_max_tokens: 2048
+mcphost_max_steps: 20
+mcphost_stream: true
+mcphost_debug: false
 
+mcphost_system_prompt: |
+  You are a helpful assistant with access to MCP tools. When users request actions:
+  - Execute the appropriate tool immediately
+  - Do not describe how to use tools—invoke them directly
+  - When a tool response includes an 'output' field, display only that field
+
+mcphost_local_servers: []             # [{name, command, description, env, cwd, type}]
+mcphost_endpoints: []                 # [{name, endpoint, description}]
+mcphost_cleanup_package: false        # Uninstall pip package when state=absent
+
+# ---------------------------------------------------------------------------
+# RISU Insights helper endpoint
+# ---------------------------------------------------------------------------
+
+risu_mcp_configure_endpoint: true
+risu_mcp_host: localhost
+risu_mcp_port: 8000
+risu_mcp_name: "RISU Insights"
+risu_mcp_description: "RISU diagnostics + remediation server"

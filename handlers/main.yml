@@ -1,0 +1,8 @@
+---
+- name: Reload Ollama daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+    name: "{{ ollama_service_name }}"
+    state: restarted
+  become: true
+  listen: Reload Ollama daemon
