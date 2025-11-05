@@ -2,28 +2,30 @@
 # Default variables for the ansible-ollama_mcphost role.
 # Override these per playbook or with --extra-vars as needed.
 
+package_auto_refresh: true
+package_refresh_command:
+  - zypper
+  - --non-interactive
+  - --gpg-auto-import-keys
+  - refresh
+
 # ---------------------------------------------------------------------------
 # Ollama configuration
 # ---------------------------------------------------------------------------
 
 ollama_state: present                  # present / absent
-ollama_install_dependencies: true
-ollama_dependencies:
-  - curl
-  - python3
-  - python3-pip
-
-ollama_install_script: https://raw.githubusercontent.com/ollama/ollama/main/scripts/install.sh
+ollama_package_name: ollama
 ollama_binary_path: /usr/bin/ollama
 ollama_service_name: ollama
 
 ollama_host: localhost
 ollama_service_port: 11434
-ollama_model: "mistral:7b"
-ollama_pull_models: []                # e.g. ["qwen2.5:32b"]
+ollama_model: "qwen3-coder:30b"
+ollama_pull_models:
+  - "qwen3-coder:30b"
 
-ollama_gpu_enabled: false
-ollama_gpu_runtime: ""               # e.g. cuda, rocm
+ollama_gpu_enabled: true
+ollama_gpu_runtime: "rocm"           # e.g. cuda, rocm
 
 ollama_cleanup_models: true           # Applies when ollama_state=absent
 ollama_cleanup_data: true
@@ -35,7 +37,7 @@ ollama_cleanup_binary: true
 # ---------------------------------------------------------------------------
 
 mcphost_state: present                 # present / absent
-mcphost_pip_package: mcphost
+mcphost_package_name: mcphost
 mcphost_executable: mcphost
 mcphost_config_path: "{{ ansible_env.HOME }}/.mcphost.yml"
 

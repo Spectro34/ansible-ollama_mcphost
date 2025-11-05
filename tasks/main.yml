@@ -1,16 +1,24 @@
 ---
 # Main orchestration for the ansible-ollama_mcphost role.
 
+- name: Auto-refresh package metadata (import keys)
+  ansible.builtin.command:
+    argv: "{{ package_refresh_command }}"
+  become: true
+  changed_when: false
+  when:
+    - package_auto_refresh
+    - ansible_facts.pkg_mgr == 'zypper'
+
 - name: Install Ollama stack
   when: ollama_state == 'present'
   tags: ['ollama', 'install']
   block:
-    - name: Ensure Ollama dependencies are present
+    - name: Install Ollama
       ansible.builtin.package:
-        name: "{{ ollama_dependencies }}"
+        name: "{{ ollama_package_name }}"
         state: present
       become: true
-      when: ollama_install_dependencies and ollama_dependencies | length > 0
 
     - name: Ensure systemd override directory exists
       ansible.builtin.file:
@@ -19,24 +27,15 @@
         mode: "0755"
       become: true
 
-    - name: Install Ollama
-      ansible.builtin.shell: |
-        set -euo pipefail
-        curl -fsSL {{ ollama_install_script }} | sh
-      args:
-        executable: /bin/bash
-        creates: "{{ ollama_binary_path }}"
-      become: true
-
     - name: Configure GPU drop-in
       ansible.builtin.copy:
         dest: "/etc/systemd/system/{{ ollama_service_name }}.service.d/override.conf"
         content: |
           [Service]
           Environment=OLLAMA_USE_GPU=1
-{% if ollama_gpu_runtime %}
+          {% if ollama_gpu_runtime %}
           Environment=OLLAMA_GPU_DRIVER={{ ollama_gpu_runtime }}
-{% endif %}
+          {% endif %}
         mode: "0644"
       become: true
       notify: Reload Ollama daemon
@@ -87,11 +86,12 @@
       when: ollama_cleanup_models
       ignore_errors: true
 
-    - name: Uninstall Ollama binary
-      ansible.builtin.command: "{{ ollama_binary_path }} uninstall"
+    - name: Remove Ollama package
+      ansible.builtin.package:
+        name: "{{ ollama_package_name }}"
+        state: absent
       become: true
       when: ollama_cleanup_binary
-      ignore_errors: true
 
     - name: Remove Ollama data directory
       ansible.builtin.file:
@@ -103,10 +103,11 @@
   when: mcphost_state == 'present'
   tags: ['mcphost', 'install', 'config']
   block:
-    - name: Install mcphost via pip
-      ansible.builtin.pip:
-        name: "{{ mcphost_pip_package }}"
-        executable: pip3
+    - name: Install mcphost
+      ansible.builtin.package:
+        name: "{{ mcphost_package_name }}"
+        state: present
+      become: true
 
     - name: Compute endpoint list
       ansible.builtin.set_fact:
@@ -149,9 +150,9 @@
         path: "{{ mcphost_config_path }}"
         state: absent
 
-    - name: Uninstall mcphost via pip
-      ansible.builtin.pip:
-        name: "{{ mcphost_pip_package }}"
+    - name: Remove mcphost package
+      ansible.builtin.package:
+        name: "{{ mcphost_package_name }}"
         state: absent
-        executable: pip3
+      become: true
       when: mcphost_cleanup_package
