@@ -6,3 +6,4 @@
     state: restarted
   become: true
   listen: Reload Ollama daemon
+  when: ollama_state == 'present'

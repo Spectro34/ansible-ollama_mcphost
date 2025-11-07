@@ -2,12 +2,25 @@
 # Default variables for the ansible-ollama_mcphost role.
 # Override these per playbook or with --extra-vars as needed.
 
+# ---------------------------------------------------------------------------
+# Package Management
+# ---------------------------------------------------------------------------
+
 package_auto_refresh: true
 package_refresh_command:
   - zypper
   - --non-interactive
   - --gpg-auto-import-keys
   - refresh
+
+# SLE16-specific repository configuration
+sle16_mcp_repo_enabled: true
+sle16_mcp_repo_url: "https://download.opensuse.org/repositories/science:/machinelearning:/mcp/SLE_16.0/science:machinelearning:mcp.repo"
+sle16_mcp_repo_name: "science:machinelearning:mcp"
+
+# Additional packages from mcphost-example-configs
+mcphost_example_configs_package: "mcphost-example-configs"
+mcphost_example_configs_install: "{{ ansible_facts.distribution in ['SLES', 'openSUSE'] | default(false) }}"  # Auto-install on SLES/openSUSE
 
 # ---------------------------------------------------------------------------
 # Ollama configuration
@@ -20,12 +33,12 @@ ollama_service_name: ollama
 
 ollama_host: localhost
 ollama_service_port: 11434
-ollama_model: "qwen3-coder:30b"
+ollama_model: "gpt-oss:20b"
 ollama_pull_models:
-  - "qwen3-coder:30b"
+  - "gpt-oss:20b"
 
-ollama_gpu_enabled: true
-ollama_gpu_runtime: "rocm"           # e.g. cuda, rocm
+ollama_gpu_enabled: false                # Enable GPU acceleration (opt-in, disabled by default)
+ollama_gpu_runtime: "rocm"               # GPU runtime: "rocm" or "cuda"
 
 ollama_cleanup_models: true           # Applies when ollama_state=absent
 ollama_cleanup_data: true
@@ -41,28 +54,94 @@ mcphost_package_name: mcphost
 mcphost_executable: mcphost
 mcphost_config_path: "{{ ansible_env.HOME }}/.mcphost.yml"
 
-mcphost_temperature: 0.3
-mcphost_max_tokens: 2048
-mcphost_max_steps: 20
-mcphost_stream: true
-mcphost_debug: false
+# Model provider configuration
+# Supported providers: ollama, openai, anthropic, google
+mcphost_model_provider: "ollama"      # ollama, openai, anthropic, google
+mcphost_model_name: "{{ ollama_model }}"  # Model name (e.g., "gpt-oss:20b", "gpt-4", "claude-sonnet-4-20250514")
+mcphost_provider_url: "http://{{ ollama_host }}:{{ ollama_service_port }}"  # Base URL for provider API
+mcphost_provider_api_key: ""          # API key (recommended: use Ansible Vault for encryption)
+                                    # Can be set via: mcphost_provider_api_key_env_var (e.g., "OPENAI_API_KEY")
+                                    # Or directly: mcphost_provider_api_key: "your-key-here" (not recommended)
+                                    # Best practice: ansible-vault create group_vars/all/vault.yml
+mcphost_provider_api_key_env_var: ""  # Environment variable name to read API key from (e.g., "OPENAI_API_KEY")
+                                      # If set, the role will read the API key from this environment variable
+                                      # Alternative to Vault for CI/CD environments
+mcphost_tls_skip_verify: false        # Skip TLS certificate verification (WARNING: insecure)
 
-mcphost_system_prompt: |
-  You are a helpful assistant with access to MCP tools. When users request actions:
-  - Execute the appropriate tool immediately
-  - Do not describe how to use tools—invoke them directly
-  - When a tool response includes an 'output' field, display only that field
+# Model generation parameters
+mcphost_temperature: 0.7              # Controls randomness (0.0-1.0, default: 0.7)
+mcphost_max_tokens: 4096              # Maximum tokens in response (default: 4096)
+mcphost_top_p: 0.95                   # Nucleus sampling (0.0-1.0, default: 0.95)
+mcphost_top_k: 40                     # Top K tokens to sample from (default: 40)
+mcphost_stop_sequences: []            # Custom stop sequences (list of strings)
 
+# Agent configuration
+mcphost_max_steps: 0                  # Maximum agent steps (0 for unlimited, default: 0)
+mcphost_stream: true                  # Enable streaming responses (default: true)
+mcphost_debug: false                  # Enable debug logging
+
+# System prompt configuration
+mcphost_system_prompt: ""             # System prompt (empty string = no system prompt)
+mcphost_system_prompt_file: ""        # Path to system prompt file (alternative to mcphost_system_prompt)
+
+# MCP Servers base directory
+# If set, relative paths in server configurations (command, cwd) will be resolved relative to this directory
+# Absolute paths will always be used as-is
+mcphost_servers_base_path: ""         # Base directory for MCP servers (empty = use paths as-is)
+
+# MCP Servers auto-discovery
+# Automatically discover and configure MCP servers from standard directories
+# NOTE: Auto-discovery is disabled by default - MCP servers must be explicitly selected
+mcphost_mcp_servers_auto_discover: false  # Enable auto-discovery of MCP servers (disabled by default - servers must be explicitly selected)
+mcphost_mcp_servers_dirs:                # Directories to search for MCP servers
+  - "{{ role_path }}/mcp_servers"        # Role's mcp_servers directory (default)
+  - "{{ lookup('env', 'HOME') }}/mcp_servers"  # User's home mcp_servers directory
+  - "/usr/share/doc/packages/mcphost-example-configs"  # Package example configs (if installed)
+
+# MCP Server Configuration
+# mcphost_mcp_servers is a list of server definitions
+# Each server can be one of three types: builtin, local, or remote
+#
+# Builtin servers (type: "builtin"):
+#   - name: Server name (required)
+#   - type: "builtin" (required)
+#   - builtin_name: Builtin server name - "fs" (filesystem), "bash", "http" (required)
+#   - options: Dictionary of options (for filesystem: allowed_directories)
+#   - allowed_tools: List of allowed tools (optional, for filesystem: ["read_file", "write_file", "list_directory"])
+#
+# Local servers (type: "local"):
+#   - name: Server name (required)
+#   - type: "local" (required)
+#   - command: List of command and arguments (required)
+#   - cwd: Working directory (optional)
+#   - environment: Dictionary of environment variables (optional)
+#   - description: Server description (optional)
+#
+# Remote servers (type: "remote"):
+#   - name: Server name (required)
+#   - type: "remote" (required)
+#   - url: Remote server URL (required)
+#   - description: Server description (optional)
+#
+# Example:
+# mcphost_mcp_servers:
+#   - name: "filesystem_tmp"
+#     type: "builtin"
+#     builtin_name: "fs"
+#     options:
+#       allowed_directories: ["/tmp"]
+#     allowed_tools: ["read_file", "write_file", "list_directory"]
+#   - name: "monitor"
+#     type: "local"
+#     command: ["mcp-server-monitor"]
+#   - name: "remote-server"
+#     type: "remote"
+#     url: "https://api.example.com/mcp"
+
+mcphost_mcp_servers: []               # List of MCP server definitions (see above)
+
+# Legacy support (deprecated, use mcphost_mcp_servers instead)
 mcphost_local_servers: []             # [{name, command, description, env, cwd, type}]
 mcphost_endpoints: []                 # [{name, endpoint, description}]
-mcphost_cleanup_package: false        # Uninstall pip package when state=absent
 
-# ---------------------------------------------------------------------------
-# RISU Insights helper endpoint
-# ---------------------------------------------------------------------------
-
-risu_mcp_configure_endpoint: true
-risu_mcp_host: localhost
-risu_mcp_port: 8000
-risu_mcp_name: "RISU Insights"
-risu_mcp_description: "RISU diagnostics + remediation server"
+mcphost_cleanup_package: false        # Uninstall package when state=absent

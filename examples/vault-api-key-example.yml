@@ -1,0 +1,51 @@
+---
+# Example: Using Ansible Vault for API key encryption
+# Demonstrates secure API key management with Ansible Vault
+
+- name: OpenAI provider with Vault-encrypted API key
+  hosts: localhost
+  become: false
+  vars_files:
+    # Load encrypted variables (requires --ask-vault-pass or --vault-password-file)
+    - group_vars/all/vault.yml  # Contains: mcphost_provider_api_key: "encrypted-key"
+  roles:
+    - role: ansible-ollama_mcphost
+      # Ollama not needed for OpenAI provider
+      ollama_state: absent
+
+      # mcphost configuration with OpenAI provider
+      mcphost_state: present
+      mcphost_model_provider: "openai"
+      mcphost_model_name: "gpt-4"
+      mcphost_provider_url: "https://api.openai.com/v1"
+      
+      # API key from vault file (group_vars/all/vault.yml)
+      # To create: ansible-vault create group_vars/all/vault.yml
+      # Add: mcphost_provider_api_key: "your-api-key-here"
+      # The key will be encrypted automatically
+      mcphost_provider_api_key: "{{ mcphost_provider_api_key }}"  # From vault
+      
+      mcphost_tls_skip_verify: false
+
+      # Model generation parameters
+      mcphost_temperature: 0.7
+      mcphost_max_tokens: 4096
+
+      # System prompt
+      mcphost_system_prompt: |
+        You are a helpful AI assistant.
+
+      # MCP Servers
+      mcphost_mcp_servers:
+        - name: "filesystem"
+          type: "builtin"
+          builtin_name: "fs"
+          options:
+            allowed_directories: ["/tmp"]
+
+# Usage:
+# 1. Create vault file: ansible-vault create group_vars/all/vault.yml
+# 2. Add: mcphost_provider_api_key: "your-api-key-here"
+# 3. Run: ansible-playbook vault-api-key-example.yml --ask-vault-pass
+#    Or: ansible-playbook vault-api-key-example.yml --vault-password-file ~/.vault_pass
+

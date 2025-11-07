@@ -1,0 +1,45 @@
+---
+- name: Verify supported platform
+  ansible.builtin.assert:
+    that:
+      - ansible_system is defined
+      - ansible_system | lower == 'linux'
+    fail_msg: "ansible-ollama_mcphost currently supports Linux targets only (detected {{ ansible_system | default('unknown') }})."
+  tags: ['always']
+
+- name: Validate GPU runtime selection
+  ansible.builtin.assert:
+    that:
+      - ollama_gpu_runtime | lower in ['rocm', 'cuda']
+    fail_msg: "ollama_gpu_runtime must be either 'rocm' or 'cuda' when GPU acceleration is enabled."
+  when: ollama_gpu_enabled | bool
+
+- name: Ensure mcphost configuration path is defined
+  ansible.builtin.assert:
+    that:
+      - mcphost_config_path is defined
+      - mcphost_config_path | length > 0
+    fail_msg: "mcphost_config_path must be provided before running the role."
+
+- name: Check accessibility of MCP server directories when auto-discovery is enabled
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ mcphost_mcp_servers_dirs | default([]) }}"
+  loop_control:
+    label: "{{ item }}"
+  register: mcphost_discovery_dirs
+  when:
+    - mcphost_mcp_servers_auto_discover | bool
+    - item is string
+  failed_when: false
+  changed_when: false
+
+- name: Fail if no MCP server directories are accessible for auto-discovery
+  ansible.builtin.assert:
+    that:
+      - (mcphost_discovery_dirs.results | selectattr('stat.exists', 'defined') | selectattr('stat.exists') | list | length) > 0
+    fail_msg: >-
+      MCP server auto-discovery is enabled, but none of the configured directories exist:
+      {{ mcphost_mcp_servers_dirs | default([]) | join(', ') }}
+  when:
+    - mcphost_mcp_servers_auto_discover | bool

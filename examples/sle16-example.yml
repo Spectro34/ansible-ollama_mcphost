@@ -1,0 +1,49 @@
+---
+# SLE16-specific example configuration
+# Demonstrates SLE16 repository setup and example configs installation
+
+- name: SLE16 mcphost setup with example configs
+  hosts: localhost
+  become: true
+  roles:
+    - role: ansible-ollama_mcphost
+      # Package management
+      package_auto_refresh: true
+      sle16_mcp_repo_enabled: true  # Automatically add SLE16 MCP repository
+
+      # Ollama configuration
+      ollama_state: present
+      ollama_model: "gpt-oss:20b"
+      ollama_pull_models:
+        - "gpt-oss:20b"
+      ollama_host: "localhost"
+      ollama_service_port: 11434
+      ollama_gpu_enabled: true
+      ollama_gpu_runtime: "rocm"  # Use "cuda" for NVIDIA GPUs
+
+      # mcphost configuration
+      mcphost_state: present
+      mcphost_model_provider: "ollama"
+      mcphost_model_name: "gpt-oss:20b"
+      mcphost_provider_url: "http://localhost:11434/"
+      mcphost_example_configs_install: true  # Install mcphost-example-configs package
+
+      # Model generation parameters
+      mcphost_temperature: 0.7
+      mcphost_max_tokens: 4096
+      mcphost_max_steps: 20
+      mcphost_stream: true
+      mcphost_debug: false
+
+      # System prompt
+      mcphost_system_prompt: |
+        You are a helpful assistant with access to MCP tools.
+
+      # MCP Servers - filesystem with /tmp access
+      mcphost_mcp_servers:
+        - name: "filesystem"
+          type: "builtin"
+          builtin_name: "fs"
+          options:
+            allowed_directories: ["/tmp"]
+

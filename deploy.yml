@@ -1,0 +1,152 @@
+---
+# Universal Deployment Playbook
+# This playbook can be run from anywhere and auto-detects context
+#
+# Usage:
+#   From role directory: ansible-playbook deploy.yml
+#   From MCP server directory: ansible-playbook /path/to/role/deploy.yml
+#   With custom options: ansible-playbook deploy.yml -e model=gpt-oss:20b
+#
+# The playbook automatically:
+# - Detects the role location
+# - Discovers MCP servers in standard locations
+# - Uses sensible defaults
+# - Can be customized with variables
+
+- name: Deploy Ollama and mcphost with MCP servers
+  hosts: localhost
+  become: true
+  vars:
+    # Auto-detect role path
+    role_path_detected: "{{ playbook_dir | dirname if playbook_dir | dirname | basename == 'ansible-ollama_mcphost' else (role_path | default(lookup('env', 'ANSIBLE_ROLES_PATH', '~/.ansible/roles'))) }}"
+    
+    # Default configuration (can be overridden)
+    # GPU is opt-in (disabled by default) - use --enable-gpu to enable
+    deployment_model: "{{ model | default('gpt-oss:20b') }}"
+    # Convert string to boolean for gpu_enabled (handles "true"/"false" strings from CLI)
+    deployment_gpu_enabled: "{{ gpu_enabled | default(false) | bool }}"
+    deployment_gpu_runtime: "{{ gpu_runtime | default('rocm') }}"
+    deployment_auto_discover: "{{ auto_discover | default(false) | bool }}"  # Disabled by default - servers must be explicitly selected
+    
+    # MCP server selection (empty = no servers, or list of server names to filter from discovered)
+    deployment_mcp_servers: "{{ mcp_servers | default([]) }}"
+    
+  pre_tasks:
+    - name: Parse MCP servers list if provided as string
+      ansible.builtin.set_fact:
+        deployment_mcp_servers_parsed: "{{ deployment_mcp_servers | from_yaml if (deployment_mcp_servers is string) else deployment_mcp_servers }}"
+      when: deployment_mcp_servers is defined
+      failed_when: false
+
+    - name: Set MCP server filter if specific servers are requested
+      ansible.builtin.set_fact:
+        mcphost_mcp_servers_filter: >-
+          {%- set requested = deployment_mcp_servers_parsed | default(deployment_mcp_servers) -%}
+          {%- set requested_type = requested | type_debug -%}
+          {%- if requested_type in ['list', 'tuple', 'AnsibleSequence'] -%}
+            {{ requested }}
+          {%- elif requested is string -%}
+            {%- set parsed = (requested | trim) | from_yaml -%}
+            {%- set parsed_type = parsed | type_debug -%}
+            {%- if parsed_type in ['list', 'tuple', 'AnsibleSequence'] -%}
+              {{ parsed }}
+            {%- elif parsed is string -%}
+              [{{ parsed }}]
+            {%- else -%}
+              [{{ requested | trim }}]
+            {%- endif -%}
+          {%- elif requested is sequence -%}
+            {{ requested }}
+          {%- elif requested | length is defined and requested | length == 0 -%}
+            []
+          {%- else -%}
+            [{{ requested }}]
+          {%- endif -%}
+        # Enable auto-discovery if server names are provided (so we can filter them)
+        deployment_auto_discover_effective: >-
+          {%- if (deployment_mcp_servers_parsed | default(deployment_mcp_servers) | default([]) | length) > 0 -%}
+            true
+          {%- else -%}
+            {{ deployment_auto_discover }}
+          {%- endif -%}
+      when: deployment_mcp_servers is defined
+
+  roles:
+    - role: "{{ role_name | default('ansible-ollama_mcphost') }}"
+      # Ollama configuration
+      ollama_state: present
+      ollama_model: "{{ deployment_model }}"
+      ollama_pull_models:
+        - "{{ deployment_model }}"
+      ollama_gpu_enabled: "{{ deployment_gpu_enabled }}"
+      ollama_gpu_runtime: "{{ deployment_gpu_runtime }}"
+
+      # mcphost configuration
+      mcphost_state: present
+      mcphost_model_provider: "ollama"
+      mcphost_model_name: "{{ deployment_model }}"
+      mcphost_provider_url: "http://localhost:11434/"
+      mcphost_config_path: "{{ lookup('env', 'HOME') }}/.mcphost.yml"
+      # API key support (if provided via environment variable or directly)
+      mcphost_provider_api_key: "{{ deployment_api_key | default('') }}"
+      mcphost_provider_api_key_env_var: "{{ deployment_api_key_env_var | default('') }}"
+      
+      # System prompt configuration
+      mcphost_system_prompt: "{{ deployment_system_prompt | default('') }}"
+      mcphost_system_prompt_file: "{{ deployment_system_prompt_file | default('') }}"
+      
+      # Auto-discovery: enable if server names are provided (for filtering), otherwise use deployment_auto_discover
+      mcphost_mcp_servers_auto_discover: "{{ deployment_auto_discover_effective | default(deployment_auto_discover) }}"
+      # Search in role's mcp_servers, user's home mcp_servers, and package examples
+      mcphost_mcp_servers_dirs:
+        - "{{ role_path_detected }}/mcp_servers"
+        - "{{ lookup('env', 'HOME') }}/mcp_servers"
+        - "/usr/share/doc/packages/mcphost-example-configs"  # Package example configs (if installed)
+        # If running from MCP server directory, include current directory's parent
+        - "{{ playbook_dir | dirname if (playbook_dir | dirname | basename) in ['mcp_servers', 'risu-insights'] else omit }}"
+      
+      # If specific servers are requested, filter them
+      # This will be handled in a pre-task if needed
+
+  post_tasks:
+    - name: Display deployment summary
+      ansible.builtin.debug:
+        msg: |
+          {%- set summary_ollama_state = (ollama_state | default('present')) -%}
+          {%- set summary_mcphost_state = (mcphost_state | default('present')) -%}
+          {%- set summary_is_removal = (summary_ollama_state == 'absent' and summary_mcphost_state == 'absent') -%}
+          ========================================
+          {{ 'Removal Complete!' if summary_is_removal else 'Deployment Complete!' }}
+          ========================================
+          
+          {%- if summary_is_removal %}
+          Removed components:
+            - Ollama: {{ 'yes' if summary_ollama_state == 'absent' else 'no' }}
+            - mcphost: {{ 'yes' if summary_mcphost_state == 'absent' else 'no' }}
+          Data directory purged: {{ 'yes' if ollama_cleanup_data | default(true) else 'no' }}
+          Model cleanup enabled: {{ 'yes' if ollama_cleanup_models | default(true) else 'no' }}
+          
+          Next steps:
+            - Run ./deploy.sh to redeploy, or ./deploy.sh --servers <names> for a subset.
+          {%- else %}
+          Ollama Model: {{ deployment_model }}
+          GPU Enabled: {{ deployment_gpu_enabled }} {% if deployment_gpu_enabled %}({{ deployment_gpu_runtime }}){% endif %}
+          MCP Servers: Auto-discovered from:
+            - {{ role_path_detected }}/mcp_servers
+            - ~/mcp_servers
+          {% if deployment_mcp_servers is defined and deployment_mcp_servers | length > 0 %}
+          Selected Servers: {{ (deployment_mcp_servers if deployment_mcp_servers is string else deployment_mcp_servers | join(', ')) }}
+          {% else %}
+          Selected Servers: All discovered servers
+          {% endif %}
+          
+          To start mcphost:
+            mcphost
+          
+          Configuration file: {{ lookup('env', 'HOME') }}/.mcphost.yml
+          
+          To test different configurations:
+            ./deploy.sh --model <model> --enable-gpu --servers <server1,server2>
+          {%- endif %}
+          
+          ========================================

@@ -1,0 +1,48 @@
+# Local test assets (kept out of git; regenerate locally as needed)
+test/
+.pytest_cache/
+*.test.yml
+*.test.yaml
+
+# Temporary files
+tmp.doc
+*.tmp
+*.swp
+*.swo
+*~
+.env
+.env.*
+.direnv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.mypy_cache/
+.ruff_cache/
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Ansible
+*.retry
+.ansible/
+.ansible/tmp/
+
+# Local test outputs
+*.log
+test-results/
+
+# Virtual environments
+.venv/
+venv/
+env/

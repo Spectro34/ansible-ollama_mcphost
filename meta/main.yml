@@ -14,6 +14,8 @@ galaxy_info:
         - all
     - name: SLES
       versions:
+        - "16.0"
+        - "16"
         - all
     - name: EL
       versions:

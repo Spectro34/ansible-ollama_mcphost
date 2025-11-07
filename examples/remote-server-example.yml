@@ -1,0 +1,46 @@
+---
+# Remote MCP server example configuration
+# Demonstrates connecting to remote MCP servers
+
+- name: Remote MCP server mcphost setup
+  hosts: localhost
+  become: false
+  roles:
+    - role: ansible-ollama_mcphost
+      # Ollama configuration
+      ollama_state: present
+      ollama_model: "gpt-oss:20b"
+      ollama_pull_models:
+        - "gpt-oss:20b"
+
+      # mcphost configuration
+      mcphost_state: present
+      mcphost_model_provider: "ollama"
+      mcphost_model_name: "gpt-oss:20b"
+      mcphost_provider_url: "http://localhost:11434/"
+
+      # MCP Servers - mix of builtin, local, and remote
+      mcphost_mcp_servers:
+        # Builtin filesystem server
+        - name: "filesystem"
+          type: "builtin"
+          builtin_name: "fs"
+          options:
+            allowed_directories: ["/tmp"]
+
+        # Local server example
+        - name: "local-server"
+          type: "local"
+          command: ["python3", "/opt/my-mcp-server/server.py"]
+          cwd: "/opt/my-mcp-server"
+          environment:
+            DEBUG: "true"
+            API_KEY: "${env://MCP_API_KEY}"  # Use environment variable
+          description: "My local MCP server"
+
+        # Remote server example
+        - name: "remote-server"
+          type: "remote"
+          url: "https://api.example.com/mcp"
+          description: "Remote MCP server"
+

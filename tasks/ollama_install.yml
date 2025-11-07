@@ -1,0 +1,54 @@
+---
+- name: Install Ollama
+  ansible.builtin.package:
+    name: "{{ ollama_package_name }}"
+    state: present
+  become: true
+  tags: ['ollama', 'install']
+
+- name: Ensure systemd override directory exists
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ ollama_service_name }}.service.d"
+    state: directory
+    mode: "0755"
+  become: true
+  tags: ['ollama', 'install']
+
+- name: Configure GPU drop-in
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ ollama_service_name }}.service.d/override.conf"
+    content: |
+      [Service]
+      Environment=OLLAMA_USE_GPU=1
+      {% if ollama_gpu_runtime %}
+      Environment=OLLAMA_GPU_DRIVER={{ ollama_gpu_runtime }}
+      {% endif %}
+    mode: "0644"
+  become: true
+  notify: Reload Ollama daemon
+  when: ollama_gpu_enabled | bool
+  tags: ['ollama', 'install']
+
+- name: Remove GPU drop-in when disabled
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ ollama_service_name }}.service.d/override.conf"
+    state: absent
+  become: true
+  notify: Reload Ollama daemon
+  when: not (ollama_gpu_enabled | bool)
+  tags: ['ollama', 'install']
+
+- name: Ensure Ollama service is running
+  ansible.builtin.systemd:
+    name: "{{ ollama_service_name }}"
+    state: started
+    enabled: true
+  become: true
+  ignore_errors: true
+  tags: ['ollama', 'install']
+
+- name: Pull requested Ollama models
+  ansible.builtin.command: "{{ ollama_binary_path }} pull {{ item }}"
+  loop: "{{ ollama_pull_models }}"
+  when: ollama_pull_models | length > 0
+  tags: ['ollama', 'install']

@@ -1,0 +1,45 @@
+---
+# OpenAI provider example configuration
+# Demonstrates using OpenAI-compatible models with mcphost
+
+- name: OpenAI provider mcphost setup
+  hosts: localhost
+  become: false
+  roles:
+    - role: ansible-ollama_mcphost
+      # Ollama not needed for OpenAI provider
+      ollama_state: absent
+
+      # mcphost configuration with OpenAI provider
+      mcphost_state: present
+      mcphost_model_provider: "openai"
+      mcphost_model_name: "gpt-4"  # or "gpt-3.5-turbo", etc.
+      mcphost_provider_url: "https://api.openai.com/v1"  # Default OpenAI API URL
+      # Option 1: Use Ansible Vault (recommended for security)
+      # Create encrypted variable: ansible-vault create group_vars/all/vault.yml
+      # Add: mcphost_provider_api_key: "your-encrypted-key"
+      # Or use inline vault: mcphost_provider_api_key: !vault | $ANSIBLE_VAULT;1.1;AES256...
+      # Option 2: Use environment variable
+      mcphost_provider_api_key_env_var: "OPENAI_API_KEY"  # Reads from $OPENAI_API_KEY
+      # Option 3: Set directly (less secure, not recommended for production)
+      # mcphost_provider_api_key: "your-api-key-here"
+      mcphost_tls_skip_verify: false
+
+      # Model generation parameters
+      mcphost_temperature: 0.7
+      mcphost_max_tokens: 4096
+      mcphost_top_p: 0.95
+      mcphost_top_k: 40
+
+      # System prompt
+      mcphost_system_prompt: |
+        You are a helpful AI assistant.
+
+      # MCP Servers
+      mcphost_mcp_servers:
+        - name: "filesystem"
+          type: "builtin"
+          builtin_name: "fs"
+          options:
+            allowed_directories: ["/tmp"]
+

@@ -7,15 +7,15 @@
       ollama_gpu_enabled: true
       ollama_pull_models:
         - "qwen2.5:32b"
-      risu_mcp_configure_endpoint: false
       mcphost_temperature: 0.2
       mcphost_max_tokens: 4096
       mcphost_max_steps: 30
-      mcphost_local_servers:
+      mcphost_mcp_servers:
         - name: "ansible-runner"
+          type: "local"
           command: ["python3", "/opt/ansible-runner-mcp/ansible_runner_mcp_fastmcp.py"]
           cwd: "/opt/ansible-runner-mcp"
           description: "Ansible Runner MCP server"
-          env:
+          environment:
             ANSIBLE_RUNNER_PRIVATE_DATA_DIR: "/opt/runner/ansible-runner"
             PYTHONUNBUFFERED: "1"

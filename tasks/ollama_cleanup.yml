@@ -1,0 +1,66 @@
+---
+- name: Stop Ollama service
+  ansible.builtin.systemd:
+    name: "{{ ollama_service_name }}"
+    state: stopped
+    enabled: false
+  become: true
+  register: ollama_stop_result
+  failed_when: false
+  tags: ['ollama', 'cleanup']
+
+- name: Remove GPU drop-in
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ ollama_service_name }}.service.d/override.conf"
+    state: absent
+  become: true
+  tags: ['ollama', 'cleanup']
+
+- name: List installed Ollama models (cleanup)
+  ansible.builtin.command: "{{ ollama_binary_path }} list"
+  register: ollama_list_result
+  changed_when: false
+  failed_when: false
+  when: ollama_cleanup_models
+  tags: ['ollama', 'cleanup']
+
+- name: Extract installed Ollama model names
+  ansible.builtin.set_fact:
+    ollama_installed_models: >-
+      {{
+        (ollama_list_result.stdout_lines | default([]))[1:]
+        | map('regex_replace', '\\s+.*', '')
+        | reject('equalto', '')
+        | list
+      }}
+  when:
+    - ollama_cleanup_models
+    - ollama_list_result is defined
+    - ollama_list_result.rc is defined
+    - ollama_list_result.rc == 0
+  tags: ['ollama', 'cleanup']
+
+- name: Remove Ollama models
+  ansible.builtin.command: "{{ ollama_binary_path }} rm {{ item }}"
+  loop: "{{ ollama_installed_models | default([]) }}"
+  when:
+    - ollama_cleanup_models
+    - ollama_installed_models is defined
+    - ollama_installed_models | length > 0
+  failed_when: false
+  tags: ['ollama', 'cleanup']
+
+- name: Remove Ollama package
+  ansible.builtin.package:
+    name: "{{ ollama_package_name }}"
+    state: absent
+  become: true
+  when: ollama_cleanup_binary
+  tags: ['ollama', 'cleanup']
+
+- name: Remove Ollama data directory
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/.ollama"
+    state: absent
+  when: ollama_cleanup_data
+  tags: ['ollama', 'cleanup']

@@ -1,0 +1,12 @@
+---
+- name: Remove mcphost configuration
+  ansible.builtin.file:
+    path: "{{ mcphost_config_path }}"
+    state: absent
+
+- name: Remove mcphost package
+  ansible.builtin.package:
+    name: "{{ mcphost_package_name }}"
+    state: absent
+  become: true
+  when: mcphost_cleanup_package

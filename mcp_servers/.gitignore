@@ -1,0 +1,7 @@
+# Ignore all MCP server repositories and config files
+# Users should clone their own MCP servers here
+*
+!.gitignore
+!README.md
+!*/config.yml.example
+

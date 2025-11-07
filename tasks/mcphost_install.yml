@@ -1,0 +1,360 @@
+---
+- name: Add SLE16 MCP repository (if enabled and on SLE16)
+  ansible.builtin.zypper_repository:
+    name: "{{ sle16_mcp_repo_name }}"
+    repo: "{{ sle16_mcp_repo_url }}"
+    state: present
+    disable_gpg_check: false
+    auto_import_keys: true
+  become: true
+  when:
+    - sle16_mcp_repo_enabled
+    - ansible_facts.distribution == "SLES"
+    - ansible_facts.distribution_major_version | int >= 16
+  tags: ['mcphost', 'install']
+
+- name: Install mcphost
+  ansible.builtin.package:
+    name: "{{ mcphost_package_name }}"
+    state: present
+  become: true
+  tags: ['mcphost', 'install']
+
+- name: Install mcphost example configs (auto-installed on SLES/openSUSE)
+  ansible.builtin.package:
+    name: "{{ mcphost_example_configs_package }}"
+    state: present
+  become: true
+  when: mcphost_example_configs_install | bool
+  tags: ['mcphost', 'install']
+
+- name: Ensure mcphost config directory exists
+  ansible.builtin.file:
+    path: "{{ mcphost_config_path | dirname }}"
+    state: directory
+    mode: "0755"
+  tags: ['mcphost', 'config']
+
+- name: Resolve API key from environment variable if specified
+  ansible.builtin.set_fact:
+    mcphost_provider_api_key_resolved: "{{ lookup('env', mcphost_provider_api_key_env_var) if mcphost_provider_api_key_env_var else mcphost_provider_api_key }}"
+  when: mcphost_provider_api_key_env_var is defined and mcphost_provider_api_key_env_var | length > 0
+  failed_when: false
+
+- name: Set API key to direct value if no env var specified
+  ansible.builtin.set_fact:
+    mcphost_provider_api_key_resolved: "{{ mcphost_provider_api_key }}"
+  when: mcphost_provider_api_key_env_var is not defined or mcphost_provider_api_key_env_var | length == 0
+
+- name: Discover MCP servers from configured directories
+  when: mcphost_mcp_servers_auto_discover | bool
+  tags: ['mcphost', 'config', 'discover']
+  block:
+    - name: Find MCP server config files (YAML and JSON)
+      ansible.builtin.find:
+        paths: "{{ item }}"
+        patterns: "config.yml,*.json"
+        file_type: file
+        recurse: "{{ item | regex_search('mcphost-example-configs') is not none | ternary(false, true) }}"
+        depth: "{{ item | regex_search('mcphost-example-configs') is not none | ternary(1, 2) }}"
+        hidden: "{{ item | regex_search('mcphost-example-configs') is not none | ternary(true, false) }}"
+      loop: "{{ mcphost_mcp_servers_dirs }}"
+      register: mcp_server_configs_raw
+      failed_when: false
+      changed_when: false
+
+    - name: Flatten discovered config files
+      ansible.builtin.set_fact:
+        discovered_config_files: "{{ discovered_config_files | default([]) + item.files | default([]) }}"
+      loop: "{{ mcp_server_configs_raw.results | default([]) }}"
+      when: item.files is defined and item.files | length > 0
+
+    - name: Load discovered MCP server configurations (YAML format - from mcp_servers/)
+      ansible.builtin.set_fact:
+        discovered_mcp_servers_config: "{{ discovered_mcp_servers_config | default({}) | combine(server_config_processed) }}"
+      vars:
+        config_file: "{{ item.path }}"
+        server_dir: "{{ item.path | dirname }}"
+        config_content_raw: "{{ lookup('template', config_file) }}"
+        config_content: "{{ config_content_raw | replace('{{ server_dir }}', server_dir) }}"
+        server_config_processed: "{{ config_content | from_yaml }}"
+      loop: "{{ discovered_config_files | default([]) }}"
+      when:
+        - discovered_config_files is defined
+        - discovered_config_files | length > 0
+        - item.path is defined
+        - (item.path | regex_search('\\.yml$|\\.yaml$')) is not none
+      failed_when: false
+      changed_when: false
+      loop_control:
+        label: "{{ item.path | dirname | basename }}"
+
+    - name: Convert relative command paths to absolute paths for local servers
+      ansible.builtin.set_fact:
+        discovered_mcp_servers_config: "{{ discovered_mcp_servers_config | combine({item.key: server_config_fixed}) }}"
+      vars:
+        server_config_fixed: >-
+          {%- set server = item.value -%}
+          {%- if server.type | default('') == 'local' and server.command is defined -%}
+            {%- set cmd_raw = server.command | first if (server.command | type_debug == 'list') else server.command -%}
+            {%- if cmd_raw.startswith('./') or cmd_raw.startswith('../') -%}
+              {%- set cwd_path = server.cwd | default('') -%}
+              {%- if cwd_path -%}
+                {%- set abs_cmd = cwd_path + '/' + cmd_raw | replace('./', '') -%}
+                {%- set is_shell_script = abs_cmd.endswith('.sh') or abs_cmd.endswith('.bash') -%}
+                {%- if is_shell_script -%}
+                  {%- if server.command | type_debug == 'list' -%}
+                    {{ server | combine({'command': ['/bin/bash', abs_cmd]}) }}
+                  {%- else -%}
+                    {{ server | combine({'command': ['/bin/bash', abs_cmd]}) }}
+                  {%- endif -%}
+                {%- else -%}
+                  {%- if server.command | type_debug == 'list' -%}
+                    {{ server | combine({'command': [abs_cmd]}) }}
+                  {%- else -%}
+                    {{ server | combine({'command': abs_cmd}) }}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- else -%}
+                {{ server }}
+              {%- endif -%}
+            {%- else -%}
+              {{ server }}
+            {%- endif -%}
+          {%- else -%}
+            {{ server }}
+          {%- endif -%}
+      loop: "{{ discovered_mcp_servers_config | dict2items | list }}"
+      when:
+        - discovered_mcp_servers_config is defined
+        - discovered_mcp_servers_config | length > 0
+      failed_when: false
+      changed_when: false
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Load discovered MCP server configurations (JSON format - from package examples)
+      ansible.builtin.set_fact:
+        discovered_mcp_servers_config: "{{ discovered_mcp_servers_config | default({}) | combine(package_servers) }}"
+      vars:
+        config_file: "{{ item.path }}"
+        config_content: "{{ lookup('file', config_file) }}"
+        config_parsed: "{{ config_content | from_json }}"
+        package_servers: "{{ config_parsed.mcpServers | default({}) }}"
+      loop: "{{ discovered_config_files | default([]) }}"
+      when:
+        - discovered_config_files is defined
+        - discovered_config_files | length > 0
+        - item.path is defined
+        - item.path | regex_search('\\.json$') is not none
+        - config_parsed.mcpServers is defined
+        - config_parsed.mcpServers | length > 0
+      failed_when: false
+      changed_when: false
+      loop_control:
+        label: "{{ item.path | basename }}"
+
+    - name: Build MCP server filter lists from requested names
+      ansible.builtin.set_fact:
+        expanded_mcp_servers_filter: "{{ requested_mcp_servers_filter | select('in', discovered_mcp_servers_config.keys() | list) | list }}"
+        missing_mcp_servers_filter: "{{ requested_mcp_servers_filter | reject('in', discovered_mcp_servers_config.keys() | list) | list }}"
+      vars:
+        requested_mcp_servers_filter: >-
+          {%- set filters = mcphost_mcp_servers_filter | default([]) -%}
+          {%- set filters_type = filters | type_debug -%}
+          {%- if filters_type in ['list', 'tuple', 'AnsibleSequence'] -%}
+            {{ filters }}
+          {%- elif filters is string -%}
+            {%- set parsed = (filters | trim) | from_yaml -%}
+            {%- set parsed_type = parsed | type_debug -%}
+            {%- if parsed_type in ['list', 'tuple', 'AnsibleSequence'] -%}
+              {{ parsed }}
+            {%- elif parsed is string -%}
+              [{{ parsed }}]
+            {%- else -%}
+              [{{ filters | trim }}]
+            {%- endif -%}
+          {%- elif filters | length is defined and filters | length == 0 -%}
+            []
+          {%- else -%}
+            [{{ filters }}]
+          {%- endif -%}
+      when:
+        - discovered_mcp_servers_config is defined
+        - mcphost_mcp_servers_filter is defined
+        - mcphost_mcp_servers_filter | length > 0
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if requested MCP servers were not discovered
+      ansible.builtin.fail:
+        msg: >-
+          Requested MCP servers were not discovered: {{ missing_mcp_servers_filter | join(', ') }}.
+          Available servers: {{ discovered_mcp_servers_config.keys() | list | join(', ') }}.
+      when:
+        - missing_mcp_servers_filter is defined
+        - missing_mcp_servers_filter | length > 0
+
+    - name: Filter discovered servers if specific ones are requested
+      ansible.builtin.set_fact:
+        discovered_mcp_servers_config: "{{ discovered_mcp_servers_config | dict2items | selectattr('key', 'in', expanded_mcp_servers_filter) | items2dict }}"
+      when:
+        - discovered_mcp_servers_config is defined
+        - expanded_mcp_servers_filter is defined
+        - expanded_mcp_servers_filter | length > 0
+
+- name: Convert manually configured servers to dict format
+  ansible.builtin.set_fact:
+    manual_mcp_servers_dict: "{{ manual_mcp_servers_dict | default({}) | combine({item.name: manual_server_dict}) }}"
+  vars:
+    manual_server_dict: >-
+      {%- set server = {} -%}
+      {%- if item.type == 'builtin' -%}
+        {%- set _ = server.update({'type': 'builtin', 'name': item.builtin_name}) -%}
+        {%- if item.options is defined -%}{%- set _ = server.update({'options': item.options}) -%}{%- endif -%}
+        {%- if item.allowed_tools is defined -%}{%- set _ = server.update({'allowedTools': item.allowed_tools}) -%}{%- endif -%}
+      {%- elif item.type == 'local' -%}
+        {%- set _ = server.update({'type': 'local'}) -%}
+        {%- if item.command is defined -%}{%- set _ = server.update({'command': item.command}) -%}{%- endif -%}
+        {%- if item.cwd is defined -%}{%- set _ = server.update({'cwd': item.cwd}) -%}{%- endif -%}
+        {%- if item.environment is defined -%}{%- set _ = server.update({'environment': item.environment}) -%}{%- elif item.env is defined -%}{%- set _ = server.update({'environment': item.env}) -%}{%- endif -%}
+      {%- elif item.type == 'remote' -%}
+        {%- set _ = server.update({'type': 'remote', 'url': item.url}) -%}
+      {%- endif -%}
+      {%- if item.description is defined -%}{%- set _ = server.update({'description': item.description}) -%}{%- endif -%}
+      {{ server }}
+  loop: "{{ mcphost_mcp_servers | default([]) }}"
+  when:
+    - mcphost_mcp_servers is defined
+    - mcphost_mcp_servers | length > 0
+  failed_when: false
+
+- name: Merge all MCP servers (discovered + manual)
+  ansible.builtin.set_fact:
+    final_mcp_servers: "{{ (discovered_mcp_servers_config | default({})) | combine(manual_mcp_servers_dict | default({})) }}"
+
+- name: Ensure final_mcp_servers exists
+  ansible.builtin.set_fact:
+    final_mcp_servers: "{{ final_mcp_servers | default({}) }}"
+
+- name: Check if local server commands exist
+  ansible.builtin.stat:
+    path: "{{ command_path }}"
+  register: command_check
+  vars:
+    is_local_server: "{{ item.value.type | default('') == 'local' or (item.value.type is not defined and item.value.command is defined) }}"
+    command_list: "{{ item.value.command if (item.value.command | type_debug == 'list') else [item.value.command] }}"
+    command_raw: >-
+      {%- if command_list | length > 1 -%}
+        {{ command_list | last }}
+      {%- else -%}
+        {{ command_list | first }}
+      {%- endif -%}
+    command_name: "{{ command_raw | basename }}"
+    command_path: >-
+      {%- if command_raw.startswith('./') -%}
+        {{ (item.value.cwd | default('')) + '/' + command_raw | replace('./', '') }}
+      {%- elif command_raw.startswith('../') -%}
+        {{ (item.value.cwd | default('')) + '/' + command_raw }}
+      {%- elif command_raw.startswith('/') -%}
+        {{ command_raw }}
+      {%- else -%}
+        /dev/null
+      {%- endif -%}
+    is_relative_path: "{{ command_raw.startswith('./') or command_raw.startswith('../') or command_raw.startswith('/') }}"
+  loop: "{{ final_mcp_servers | dict2items | list }}"
+  when:
+    - final_mcp_servers is defined
+    - is_local_server | bool
+    - item.value.command is defined
+    - is_relative_path | bool
+  failed_when: false
+  changed_when: false
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Check if command exists in PATH (for non-relative paths)
+  ansible.builtin.command:
+    cmd: "which {{ command_name }}"
+  register: command_check_path
+  vars:
+    is_local_server: "{{ item.value.type | default('') == 'local' or (item.value.type is not defined and item.value.command is defined) }}"
+    command_list: "{{ item.value.command if (item.value.command | type_debug == 'list') else [item.value.command] }}"
+    command_raw: >-
+      {%- if command_list | length > 1 -%}
+        {{ command_list | last }}
+      {%- else -%}
+        {{ command_list | first }}
+      {%- endif -%}
+    command_name: "{{ command_raw | basename }}"
+    is_relative_path: "{{ command_raw.startswith('./') or command_raw.startswith('../') or command_raw.startswith('/') }}"
+  loop: "{{ final_mcp_servers | dict2items | list }}"
+  when:
+    - final_mcp_servers is defined
+    - is_local_server | bool
+    - item.value.command is defined
+    - not (is_relative_path | bool)
+  failed_when: false
+  changed_when: false
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Validate local server commands exist (relative/absolute paths)
+  ansible.builtin.set_fact:
+    valid_servers: "{{ valid_servers | default({}) | combine({item.item.key: item.item.value}) }}"
+  loop: "{{ command_check.results | default([]) }}"
+  when:
+    - command_check is defined
+    - not item.skipped | default(false) | bool
+    - item.stat is defined
+    - item.stat.exists | default(false) | bool
+  changed_when: false
+
+- name: Validate commands found in PATH
+  ansible.builtin.set_fact:
+    valid_servers: "{{ valid_servers | default({}) | combine({item.item.key: item.item.value}) }}"
+  loop: "{{ command_check_path.results | default([]) }}"
+  when:
+    - command_check_path is defined
+    - not item.skipped | default(false) | bool
+    - item.rc is defined
+    - item.rc == 0
+  changed_when: false
+
+- name: Warn about invalid MCP server commands
+  ansible.builtin.debug:
+    msg: >-
+      Skipping MCP server '{{ item.key }}' because its command '{{ (item.value.command | default('unknown command')) }}' was not found.
+  loop: "{{ final_mcp_servers | default({}) | dict2items | list }}"
+  when:
+    - final_mcp_servers is defined
+    - valid_servers is defined
+    - item.key not in valid_servers
+    - (item.value.type | default('')) in ['local', '']
+    - item.value.command is defined
+  changed_when: false
+  failed_when: false
+
+- name: Update final MCP servers list with only valid entries
+  ansible.builtin.set_fact:
+    final_mcp_servers: "{{ valid_servers | default(final_mcp_servers | default({})) }}"
+
+- name: Render mcphost configuration file
+  ansible.builtin.template:
+    src: mcphost-config.yml.j2
+    dest: "{{ mcphost_config_path }}"
+    mode: "0644"
+  vars:
+    mcp_servers: "{{ final_mcp_servers | default({}) }}"
+
+- name: Display mcphost hint
+  ansible.builtin.debug:
+    msg: |
+      mcphost is ready. Start it with:
+
+        {{ mcphost_executable }}
+
+      Configuration file: {{ mcphost_config_path }}
+      {% if mcphost_example_configs_install %}
+      Example configs available in: /usr/share/doc/packages/mcphost-example-configs/
+      {% endif %}

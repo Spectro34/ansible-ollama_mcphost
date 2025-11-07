@@ -1,0 +1,9 @@
+---
+- name: Auto-refresh package metadata (import keys)
+  ansible.builtin.command:
+    argv: "{{ package_refresh_command }}"
+  become: true
+  changed_when: false
+  when:
+    - package_auto_refresh
+    - ansible_facts.pkg_mgr == 'zypper'
