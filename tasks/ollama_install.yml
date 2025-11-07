@@ -44,11 +44,11 @@
     state: started
     enabled: true
   become: true
-  ignore_errors: true
   tags: ['ollama', 'install']
 
 - name: Pull requested Ollama models
   ansible.builtin.command: "{{ ollama_binary_path }} pull {{ item }}"
   loop: "{{ ollama_pull_models }}"
   when: ollama_pull_models | length > 0
+  changed_when: false
   tags: ['ollama', 'install']

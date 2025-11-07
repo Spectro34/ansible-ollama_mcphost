@@ -206,6 +206,7 @@
 - name: Convert manually configured servers to dict format
   ansible.builtin.set_fact:
     manual_mcp_servers_dict: "{{ manual_mcp_servers_dict | default({}) | combine({item.name: manual_server_dict}) }}"
+  # yamllint disable rule:line-length
   vars:
     manual_server_dict: >-
       {%- set server = {} -%}
