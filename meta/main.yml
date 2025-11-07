@@ -17,19 +17,6 @@ galaxy_info:
         - "16.0"
         - "16"
         - all
-    - name: EL
-      versions:
-        - 8
-        - 9
-    - name: Fedora
-      versions:
-        - all
-    - name: Ubuntu
-      versions:
-        - all
-    - name: Debian
-      versions:
-        - all
   
   galaxy_tags:
     - ai
@@ -41,4 +28,3 @@ galaxy_info:
     - system
 
 dependencies: []
-

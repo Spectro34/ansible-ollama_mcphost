@@ -172,20 +172,3 @@ mcphost_mcp_servers_dirs:
   - "/opt/mcp_servers"
 ```
 
-## Package Documentation
-
-The `mcphost-example-configs` package includes comprehensive documentation and example configurations:
-
-- **Package Location**: `/usr/share/doc/packages/mcphost-example-configs/`
-- **View Package Contents**: `rpm -ql mcphost-example-configs` (on RPM-based systems)
-- **Access Documentation**: `ls /usr/share/doc/packages/mcphost-example-configs/`
-
-The package documentation provides:
-- Detailed MCP server configuration examples
-- Best practices for server setup
-- Additional configuration options and patterns
-- Reference implementations for different use cases
-- JSON format example configurations that are auto-discovered by the role
-
-Refer to the package documentation for additional examples and detailed configuration reference beyond what's provided in this role.
-
