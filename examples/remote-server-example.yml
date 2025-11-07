@@ -43,4 +43,3 @@
           type: "remote"
           url: "https://api.example.com/mcp"
           description: "Remote MCP server"
-

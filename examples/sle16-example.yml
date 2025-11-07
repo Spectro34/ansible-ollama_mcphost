@@ -46,4 +46,3 @@
           builtin_name: "fs"
           options:
             allowed_directories: ["/tmp"]
-

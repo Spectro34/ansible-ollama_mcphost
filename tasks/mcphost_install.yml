@@ -1,6 +1,6 @@
 ---
 - name: Add SLE16 MCP repository (if enabled and on SLE16)
-  ansible.builtin.zypper_repository:
+  community.general.zypper_repository:
     name: "{{ sle16_mcp_repo_name }}"
     repo: "{{ sle16_mcp_repo_url }}"
     state: present
