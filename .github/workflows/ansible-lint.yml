@@ -24,6 +24,11 @@ jobs:
           pip3 install ansible-core==2.18.10
           pip3 install ansible-lint==6.22.1
 
+      - name: Set up role symlink for ansible-lint
+        run: |
+          mkdir -p ~/.ansible/roles
+          ln -sf ${{ github.workspace }} ~/.ansible/roles/ansible-ollama_mcphost
+
       - name: Run ansible-lint
         working-directory: ${{ github.workspace }}
         run: |
