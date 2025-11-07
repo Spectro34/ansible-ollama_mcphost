@@ -4,13 +4,6 @@
 
 set -euo pipefail
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROLE_NAME="ansible-ollama_mcphost"
@@ -31,18 +24,18 @@ SYSTEM_PROMPT_FILE=""
 # Function to print usage
 usage() {
     cat << EOF
-${GREEN}Universal Deployment Script for ansible-ollama_mcphost${NC}
+Universal Deployment Script for ansible-ollama_mcphost
 
-${BLUE}Usage:${NC}
+Usage:
     $0 [OPTIONS] [ACTION]
 
-${BLUE}Actions:${NC}
+Actions:
     deploy          Deploy Ollama and mcphost (default)
     remove          Remove Ollama and mcphost
     update          Update configuration
     status          Show deployment status
 
-${BLUE}Options:${NC}
+Options:
     --model MODEL           Model to use (default: gpt-oss:20b)
     --enable-gpu            Enable GPU acceleration (opt-in, disabled by default)
     --gpu-runtime RUNTIME   GPU runtime: rocm or cuda (default: rocm)
@@ -54,7 +47,7 @@ ${BLUE}Options:${NC}
     --role-path PATH        Path to role (auto-detected if not specified)
     --help                  Show this help message
 
-${BLUE}Examples:${NC}
+Examples:
     # Deploy with defaults
     $0
 
@@ -82,7 +75,7 @@ ${BLUE}Examples:${NC}
     # Update configuration
     $0 update
 
-${BLUE}MCP Server Selection:${NC}
+MCP Server Selection:
     MCP servers must be explicitly selected using --servers option.
     Auto-discovery is disabled by default. To enable:
     - Use --servers option to specify which servers to deploy
@@ -97,7 +90,7 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --model)
             if [[ -z "${2:-}" ]] || [[ "$2" == --* ]]; then
-                echo -e "${RED}Error: --model requires a value${NC}" >&2
+                echo "Error: --model requires a value" >&2
                 usage
                 exit 1
             fi
@@ -110,7 +103,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --gpu-runtime)
             if [[ -z "${2:-}" ]] || [[ "$2" == --* ]]; then
-                echo -e "${RED}Error: --gpu-runtime requires a value (rocm or cuda)${NC}" >&2
+                echo "Error: --gpu-runtime requires a value (rocm or cuda)" >&2
                 usage
                 exit 1
             fi
@@ -119,7 +112,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --servers)
             if [[ -z "${2:-}" ]] || [[ "$2" == --* ]]; then
-                echo -e "${RED}Error: --servers requires a value (comma-separated list)${NC}" >&2
+                echo "Error: --servers requires a value (comma-separated list)" >&2
                 usage
                 exit 1
             fi
@@ -128,7 +121,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --api-key)
             if [[ -z "${2:-}" ]] || [[ "$2" == --* ]]; then
-                echo -e "${RED}Error: --api-key requires a value${NC}" >&2
+                echo "Error: --api-key requires a value" >&2
                 usage
                 exit 1
             fi
@@ -137,7 +130,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --api-key-env-var)
             if [[ -z "${2:-}" ]] || [[ "$2" == --* ]]; then
-                echo -e "${RED}Error: --api-key-env-var requires a value${NC}" >&2
+                echo "Error: --api-key-env-var requires a value" >&2
                 usage
                 exit 1
             fi
@@ -146,7 +139,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --system-prompt)
             if [[ -z "${2:-}" ]] || [[ "$2" == --* ]]; then
-                echo -e "${RED}Error: --system-prompt requires a value${NC}" >&2
+                echo "Error: --system-prompt requires a value" >&2
                 usage
                 exit 1
             fi
@@ -155,7 +148,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --system-prompt-file)
             if [[ -z "${2:-}" ]] || [[ "$2" == --* ]]; then
-                echo -e "${RED}Error: --system-prompt-file requires a value${NC}" >&2
+                echo "Error: --system-prompt-file requires a value" >&2
                 usage
                 exit 1
             fi
@@ -164,7 +157,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --role-path)
             if [[ -z "${2:-}" ]] || [[ "$2" == --* ]]; then
-                echo -e "${RED}Error: --role-path requires a value${NC}" >&2
+                echo "Error: --role-path requires a value" >&2
                 usage
                 exit 1
             fi
@@ -179,7 +172,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         *)
-            echo -e "${RED}Error: Unknown option: $1${NC}" >&2
+            echo "Error: Unknown option: $1" >&2
             usage
             exit 1
             ;;
@@ -206,18 +199,18 @@ fi
 
 # Validate role path
 if [ -z "$ROLE_PATH" ] || [ ! -f "$ROLE_PATH/deploy.yml" ]; then
-    echo -e "${RED}Error: Could not find role directory${NC}" >&2
-    echo -e "${YELLOW}Please specify --role-path or install the role using:${NC}"
-    echo -e "  cd $SCRIPT_DIR && ./install-symlink.sh"
+    echo "Error: Could not find role directory" >&2
+    echo "Please specify --role-path or install the role using:"
+    echo "  cd $SCRIPT_DIR && ./install-symlink.sh"
     exit 1
 fi
 
-echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}ansible-ollama_mcphost Deployment${NC}"
-echo -e "${GREEN}========================================${NC}"
+echo "========================================"
+echo "ansible-ollama_mcphost Deployment"
+echo "========================================"
 echo ""
-echo -e "${BLUE}Role path:${NC} $ROLE_PATH"
-echo -e "${BLUE}Action:${NC} $ACTION"
+echo "Role path: $ROLE_PATH"
+echo "Action: $ACTION"
 echo ""
 
 # Build ansible-playbook command
@@ -255,74 +248,74 @@ fi
 # Handle different actions
 case $ACTION in
     deploy)
-        echo -e "${BLUE}Deploying with:${NC}"
-        echo -e "  Model: $MODEL"
-        echo -e "  GPU: $GPU_ENABLED" 
+        echo "Deploying with:"
+        echo "  Model: $MODEL"
+        echo "  GPU: $GPU_ENABLED" 
         if [ "$GPU_ENABLED" = "true" ]; then
-            echo -e "  GPU Runtime: $GPU_RUNTIME"
+            echo "  GPU Runtime: $GPU_RUNTIME"
         fi
         if [ -n "$MCP_SERVERS" ]; then
-            echo -e "  MCP Servers: $MCP_SERVERS"
+            echo "  MCP Servers: $MCP_SERVERS"
         else
-            echo -e "  ${YELLOW}⚠ Warning: No MCP servers specified. Use --servers to select servers.${NC}"
+            echo "  Warning: No MCP servers specified. Use --servers to select servers."
         fi
         if [ -n "$SYSTEM_PROMPT" ]; then
-            echo -e "  System Prompt: (text provided)"
+            echo "  System Prompt: (text provided)"
         elif [ -n "$SYSTEM_PROMPT_FILE" ]; then
-            echo -e "  System Prompt File: $SYSTEM_PROMPT_FILE"
+            echo "  System Prompt File: $SYSTEM_PROMPT_FILE"
         fi
         echo ""
         $ANSIBLE_CMD "${ANSIBLE_ARGS[@]}"
         ;;
     remove)
-        echo -e "${YELLOW}Removing Ollama and mcphost...${NC}"
+        echo "Removing Ollama and mcphost..."
         $ANSIBLE_CMD "$ROLE_PATH/deploy.yml" \
             -e "ollama_state=absent" \
             -e "mcphost_state=absent" \
             -e "role_path=$ROLE_PATH"
         ;;
     update)
-        echo -e "${BLUE}Updating configuration...${NC}"
+        echo "Updating configuration..."
         $ANSIBLE_CMD "${ANSIBLE_ARGS[@]}"
         ;;
     status)
-        echo -e "${BLUE}Deployment Status:${NC}"
+        echo "Deployment Status:"
         echo ""
         if command -v ollama >/dev/null 2>&1; then
-            echo -e "${GREEN}✓ Ollama installed${NC}"
-            ollama list 2>/dev/null || echo -e "${YELLOW}  (Ollama service may not be running)${NC}"
+            echo "Ollama installed"
+            ollama list 2>/dev/null || echo "  (Ollama service may not be running)"
         else
-            echo -e "${RED}✗ Ollama not installed${NC}"
+            echo "Ollama not installed"
         fi
         echo ""
         if command -v mcphost >/dev/null 2>&1; then
-            echo -e "${GREEN}✓ mcphost installed${NC}"
+            echo "mcphost installed"
             if [ -f "$HOME/.mcphost.yml" ]; then
-                echo -e "${GREEN}✓ Configuration file exists${NC}"
-                echo -e "  Location: $HOME/.mcphost.yml"
+                echo "Configuration file exists"
+                echo "  Location: $HOME/.mcphost.yml"
             else
-                echo -e "${YELLOW}⚠ Configuration file not found${NC}"
+                echo "Configuration file not found"
             fi
         else
-            echo -e "${RED}✗ mcphost not installed${NC}"
+            echo "mcphost not installed"
         fi
         echo ""
         # Check for MCP servers
         if [ -d "$ROLE_PATH/mcp_servers" ]; then
             SERVER_COUNT=$(find "$ROLE_PATH/mcp_servers" -name "config.yml" 2>/dev/null | wc -l)
             if [ "$SERVER_COUNT" -gt 0 ]; then
-                echo -e "${GREEN}✓ Found $SERVER_COUNT MCP server(s) in role directory${NC}"
+                echo "Found $SERVER_COUNT MCP server(s) in role directory"
             fi
         fi
         if [ -d "$HOME/mcp_servers" ]; then
             SERVER_COUNT=$(find "$HOME/mcp_servers" -name "config.yml" 2>/dev/null | wc -l)
             if [ "$SERVER_COUNT" -gt 0 ]; then
-                echo -e "${GREEN}✓ Found $SERVER_COUNT MCP server(s) in home directory${NC}"
+                echo "Found $SERVER_COUNT MCP server(s) in home directory"
             fi
         fi
         ;;
     *)
-        echo -e "${RED}Error: Unknown action: $ACTION${NC}" >&2
+        echo "Error: Unknown action: $ACTION" >&2
         usage
         exit 1
         ;;
