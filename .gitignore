@@ -46,3 +46,6 @@ test-results/
 .venv/
 venv/
 env/
+
+# Ansible role symlink
+ansible-ollama_mcphost
