@@ -2,7 +2,7 @@
 
 ![Ansible Lint](https://github.com/Spectro34/ansible-ollama_mcphost/actions/workflows/ansible-lint.yml/badge.svg?branch=main)
 
-Composable Ansible role for provisioning [Ollama](https://ollama.com/) and the [`mcphost`](https://github.com/mark3labs/mcphost) CLI. The role supports both installation and cleanup flows, optional GPU enablement, multiple model providers, and flexible MCP server configurations.
+Composable Ansible role for provisioning [Ollama](https://ollama.com/) and the [`mcphost`](https://github.com/mark3labs/mcphost) CLI. The role supports both installation and cleanup flows, optional GPU enablement, multiple model providers, and flexible MCP server configurations for *testing*.
 
 ## Features
 
