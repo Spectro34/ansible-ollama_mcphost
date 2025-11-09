@@ -1,4 +1,54 @@
----
+- name: Detect distribution information (without gathered facts)
+  ansible.builtin.shell: |
+    if [ -r /etc/os-release ]; then
+      . /etc/os-release
+      printf "%s|%s" "${ID:-}" "${VERSION_ID:-}"
+    fi
+  args:
+    executable: /bin/bash
+  register: mcphost_os_release
+  changed_when: false
+  failed_when: false
+  tags: ['mcphost', 'install']
+
+- name: Cache distribution facts for repo decisions
+  ansible.builtin.set_fact:
+    mcphost_detected_distribution: "{{ (mcphost_os_release.stdout | default('')).split('|')[0] | default('') | lower }}"
+    mcphost_detected_distribution_major: "{{ ((mcphost_os_release.stdout | default('')).split('|')[1] | default('')).split('.')[0] | default('') }}"
+  when: mcphost_os_release.stdout is defined and mcphost_os_release.stdout | length > 0
+
+- name: Check if zypper is available
+  ansible.builtin.stat:
+    path: /usr/bin/zypper
+  register: mcphost_zypper_stat
+
+- name: Gather package facts (when zypper is present)
+  ansible.builtin.package_facts:
+    manager: auto
+  when: mcphost_zypper_stat.stat.exists | default(false)
+
+- name: Compute package availability flags
+  ansible.builtin.set_fact:
+    mcphost_package_available: "{{ (ansible_facts.packages[mcphost_package_name] | default([])) | length > 0 }}"
+    ollama_package_available: "{{ (ansible_facts.packages[ollama_package_name] | default([])) | length > 0 }}"
+  when:
+    - mcphost_zypper_stat.stat.exists | default(false)
+    - ansible_facts.packages is defined
+
+- name: Determine if SLE16 MCP repository is required
+  ansible.builtin.set_fact:
+    sle16_repo_required: >-
+      {{
+        (sle16_mcp_repo_enabled | bool)
+        and (mcphost_zypper_stat.stat.exists | default(false))
+        and ((mcphost_detected_distribution | default('')) in ['sles'])
+        and (((mcphost_detected_distribution_major | default('0')) | int) >= 16)
+        and (
+          (not (mcphost_package_available | default(false)))
+          or (not (ollama_package_available | default(false)))
+        )
+      }}
+
 - name: Add SLE16 MCP repository (if enabled and on SLE16)
   community.general.zypper_repository:
     name: "{{ sle16_mcp_repo_name }}"
@@ -8,9 +58,7 @@
     auto_import_keys: true
   become: true
   when:
-    - sle16_mcp_repo_enabled
-    - ansible_facts.distribution == "SLES"
-    - ansible_facts.distribution_major_version | int >= 16
+    - sle16_repo_required | default(false)
   tags: ['mcphost', 'install']
 
 - name: Install mcphost
@@ -18,14 +66,6 @@
     name: "{{ mcphost_package_name }}"
     state: present
   become: true
-  tags: ['mcphost', 'install']
-
-- name: Install mcphost example configs (auto-installed on SLES/openSUSE)
-  ansible.builtin.package:
-    name: "{{ mcphost_example_configs_package }}"
-    state: present
-  become: true
-  when: mcphost_example_configs_install | bool
   tags: ['mcphost', 'install']
 
 - name: Ensure mcphost config directory exists
@@ -37,14 +77,18 @@
 
 - name: Resolve API key from environment variable if specified
   ansible.builtin.set_fact:
-    mcphost_provider_api_key_resolved: "{{ lookup('env', mcphost_provider_api_key_env_var) if mcphost_provider_api_key_env_var else mcphost_provider_api_key }}"
-  when: mcphost_provider_api_key_env_var is defined and mcphost_provider_api_key_env_var | length > 0
+    mcphost_provider_api_key_resolved: "{{ lookup('ansible.builtin.env', env_var_name) }}"
+  vars:
+    env_var_name: "{{ mcphost_provider_api_key_env_var | default('') | trim }}"
+  when: env_var_name | length > 0
   failed_when: false
 
 - name: Set API key to direct value if no env var specified
   ansible.builtin.set_fact:
     mcphost_provider_api_key_resolved: "{{ mcphost_provider_api_key }}"
-  when: mcphost_provider_api_key_env_var is not defined or mcphost_provider_api_key_env_var | length == 0
+  vars:
+    env_var_name: "{{ mcphost_provider_api_key_env_var | default('') | trim }}"
+  when: env_var_name | length == 0
 
 - name: Discover MCP servers from configured directories
   when: mcphost_mcp_servers_auto_discover | bool
@@ -55,9 +99,7 @@
         paths: "{{ item }}"
         patterns: "config.yml,*.json"
         file_type: file
-        recurse: "{{ item | regex_search('mcphost-example-configs') is not none | ternary(false, true) }}"
-        depth: "{{ item | regex_search('mcphost-example-configs') is not none | ternary(1, 2) }}"
-        hidden: "{{ item | regex_search('mcphost-example-configs') is not none | ternary(true, false) }}"
+        recurse: true
       loop: "{{ mcphost_mcp_servers_dirs }}"
       register: mcp_server_configs_raw
       failed_when: false
@@ -72,12 +114,21 @@
     - name: Load discovered MCP server configurations (YAML format - from mcp_servers/)
       ansible.builtin.set_fact:
         discovered_mcp_servers_config: "{{ discovered_mcp_servers_config | default({}) | combine(server_config_processed) }}"
+        discovered_mcp_servers_dirs: "{{ discovered_mcp_servers_dirs | default({}) | combine(server_dir_mapping) }}"
+        discovered_mcp_directories: "{{ discovered_mcp_directories | default({}) | combine({server_dir_name: server_dir}) }}"
       vars:
         config_file: "{{ item.path }}"
         server_dir: "{{ item.path | dirname }}"
+        server_dir_name: "{{ server_dir | basename }}"
         config_content_raw: "{{ lookup('template', config_file) }}"
         config_content: "{{ config_content_raw | replace('{{ server_dir }}', server_dir) }}"
         server_config_processed: "{{ config_content | from_yaml }}"
+        server_dir_mapping: >-
+          {%- set mapping = {} -%}
+          {%- for server_name in server_config_processed.keys() -%}
+            {%- set _ = mapping.update({server_name: server_dir}) -%}
+          {%- endfor -%}
+          {{ mapping }}
       loop: "{{ discovered_config_files | default([]) }}"
       when:
         - discovered_config_files is defined
@@ -154,12 +205,9 @@
       loop_control:
         label: "{{ item.path | basename }}"
 
-    - name: Build MCP server filter lists from requested names
+    - name: Build MCP directory filter lists from requested directory names
       ansible.builtin.set_fact:
-        expanded_mcp_servers_filter: "{{ requested_mcp_servers_filter | select('in', discovered_mcp_servers_config.keys() | list) | list }}"
-        missing_mcp_servers_filter: "{{ requested_mcp_servers_filter | reject('in', discovered_mcp_servers_config.keys() | list) | list }}"
-      vars:
-        requested_mcp_servers_filter: >-
+        requested_directory_filters: >-
           {%- set filters = mcphost_mcp_servers_filter | default([]) -%}
           {%- set filters_type = filters | type_debug -%}
           {%- if filters_type in ['list', 'tuple', 'AnsibleSequence'] -%}
@@ -180,28 +228,111 @@
             [{{ filters }}]
           {%- endif -%}
       when:
-        - discovered_mcp_servers_config is defined
         - mcphost_mcp_servers_filter is defined
         - mcphost_mcp_servers_filter | length > 0
       changed_when: false
       failed_when: false
 
-    - name: Fail if requested MCP servers were not discovered
+    - name: Get server names from requested directories
+      ansible.builtin.set_fact:
+        expanded_mcp_servers_filter: >-
+          {%- set server_list = [] -%}
+          {%- for dir_name in requested_directory_filters -%}
+            {%- if discovered_mcp_directories[dir_name] is defined -%}
+              {%- set dir_path = discovered_mcp_directories[dir_name] -%}
+              {%- for server_name, server_dir in discovered_mcp_servers_dirs.items() -%}
+                {%- if server_dir == dir_path -%}
+                  {%- set _ = server_list.append(server_name) -%}
+                {%- endif -%}
+              {%- endfor -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ server_list }}
+        missing_directory_filters: >-
+          {%- set missing = [] -%}
+          {%- for dir_name in requested_directory_filters -%}
+            {%- if discovered_mcp_directories[dir_name] is not defined -%}
+              {%- set _ = missing.append(dir_name) -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ missing }}
+      vars:
+        requested_directory_filters: "{{ requested_directory_filters | default([]) }}"
+      when:
+        - discovered_mcp_servers_config is defined
+        - discovered_mcp_directories is defined
+        - discovered_mcp_servers_dirs is defined
+        - requested_directory_filters is defined
+        - requested_directory_filters | length > 0
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if requested MCP directories were not discovered
       ansible.builtin.fail:
         msg: >-
-          Requested MCP servers were not discovered: {{ missing_mcp_servers_filter | join(', ') }}.
-          Available servers: {{ discovered_mcp_servers_config.keys() | list | join(', ') }}.
+          Requested MCP server directories were not discovered: {{ missing_directory_filters | join(', ') }}.
+          Available directories: {{ discovered_mcp_directories.keys() | list | join(', ') }}.
       when:
-        - missing_mcp_servers_filter is defined
-        - missing_mcp_servers_filter | length > 0
+        - missing_directory_filters is defined
+        - missing_directory_filters | length > 0
 
-    - name: Filter discovered servers if specific ones are requested
+    - name: Filter discovered servers by directory (if filter is specified)
       ansible.builtin.set_fact:
         discovered_mcp_servers_config: "{{ discovered_mcp_servers_config | dict2items | selectattr('key', 'in', expanded_mcp_servers_filter) | items2dict }}"
       when:
         - discovered_mcp_servers_config is defined
         - expanded_mcp_servers_filter is defined
         - expanded_mcp_servers_filter | length > 0
+
+    - name: Clear discovered servers if no filter is specified (no auto-discovery)
+      ansible.builtin.set_fact:
+        discovered_mcp_servers_config: {}
+      when:
+        - discovered_mcp_servers_config is defined
+        - mcphost_mcp_servers_filter is not defined or mcphost_mcp_servers_filter | length == 0
+
+    - name: Get directories of enabled MCP servers from requested directory filters
+      ansible.builtin.set_fact:
+        enabled_mcp_servers_dirs: "{{ enabled_mcp_servers_dirs | default([]) + [discovered_mcp_directories[item]] }}"
+      loop: "{{ requested_directory_filters | default([]) }}"
+      when:
+        - discovered_mcp_directories is defined
+        - requested_directory_filters is defined
+        - requested_directory_filters | length > 0
+        - discovered_mcp_directories[item] is defined
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Discover system-prompt files from enabled MCP server directories only
+      ansible.builtin.find:
+        paths: "{{ item }}"
+        patterns: "system-prompt"
+        file_type: file
+      loop: "{{ enabled_mcp_servers_dirs | default([]) | unique }}"
+      register: mcp_system_prompts_raw
+      failed_when: false
+      changed_when: false
+      when:
+        - enabled_mcp_servers_dirs is defined
+        - enabled_mcp_servers_dirs | length > 0
+
+    - name: Flatten discovered system-prompt files
+      ansible.builtin.set_fact:
+        discovered_system_prompt_files: "{{ discovered_system_prompt_files | default([]) + item.files | default([]) }}"
+      loop: "{{ mcp_system_prompts_raw.results | default([]) }}"
+      when:
+        - mcp_system_prompts_raw is defined
+        - item.files is defined
+        - item.files | length > 0
+
+    - name: Set discovered system-prompt file if no explicit prompt is configured
+      ansible.builtin.set_fact:
+        mcphost_system_prompt_file_discovered: "{{ (discovered_system_prompt_files | first).path | default('') }}"
+      when:
+        - discovered_system_prompt_files is defined
+        - discovered_system_prompt_files | length > 0
+        - mcphost_system_prompt_file | default('') | length == 0
+        - mcphost_system_prompt | default('') | length == 0
 
 - name: Convert manually configured servers to dict format
   ansible.builtin.set_fact:
@@ -346,6 +477,7 @@
     dest: "{{ mcphost_config_path }}"
     mode: "0644"
   vars:
+    mcphost_generated_timestamp: "{{ lookup('pipe', 'date --iso-8601=seconds') }}"
     mcp_servers: "{{ final_mcp_servers | default({}) }}"
 
 - name: Display mcphost hint
@@ -356,6 +488,4 @@
         {{ mcphost_executable }}
 
       Configuration file: {{ mcphost_config_path }}
-      {% if mcphost_example_configs_install %}
-      Example configs available in: /usr/share/doc/packages/mcphost-example-configs/
-      {% endif %}
+      Drop additional MCP servers under roles/ansible-ollama_mcphost/mcp_servers/ or ~/mcp_servers/ to have them auto-discovered.

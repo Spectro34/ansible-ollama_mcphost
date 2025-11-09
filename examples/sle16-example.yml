@@ -26,7 +26,6 @@
       mcphost_model_provider: "ollama"
       mcphost_model_name: "gpt-oss:20b"
       mcphost_provider_url: "http://localhost:11434/"
-      mcphost_example_configs_install: true  # Install mcphost-example-configs package
 
       # Model generation parameters
       mcphost_temperature: 0.7

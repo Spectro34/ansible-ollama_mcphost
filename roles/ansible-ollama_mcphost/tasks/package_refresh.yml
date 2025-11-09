@@ -6,4 +6,5 @@
   changed_when: false
   when:
     - package_auto_refresh
-    - ansible_facts.pkg_mgr == 'zypper'
+    - ansible_facts is defined
+    - ansible_facts.get('pkg_mgr', '') == 'zypper'

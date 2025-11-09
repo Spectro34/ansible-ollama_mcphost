@@ -18,10 +18,6 @@ sle16_mcp_repo_enabled: true
 sle16_mcp_repo_url: "https://download.opensuse.org/repositories/science:/machinelearning:/mcp/SLE_16.0/science:machinelearning:mcp.repo"
 sle16_mcp_repo_name: "science:machinelearning:mcp"
 
-# Additional packages from mcphost-example-configs
-mcphost_example_configs_package: "mcphost-example-configs"
-mcphost_example_configs_install: "{{ ansible_facts.distribution in ['SLES', 'openSUSE'] | default(false) }}"  # Auto-install on SLES/openSUSE
-
 # ---------------------------------------------------------------------------
 # Ollama configuration
 # ---------------------------------------------------------------------------
@@ -92,11 +88,10 @@ mcphost_servers_base_path: ""         # Base directory for MCP servers (empty = 
 # MCP Servers auto-discovery
 # Automatically discover and configure MCP servers from standard directories
 # NOTE: Auto-discovery is disabled by default - MCP servers must be explicitly selected
-mcphost_mcp_servers_auto_discover: false  # Enable auto-discovery of MCP servers (disabled by default - servers must be explicitly selected)
+mcphost_mcp_servers_auto_discover: true   # Enable auto-discovery of MCP servers
 mcphost_mcp_servers_dirs:                # Directories to search for MCP servers
   - "{{ role_path }}/mcp_servers"        # Role's mcp_servers directory (default)
   - "{{ lookup('env', 'HOME') }}/mcp_servers"  # User's home mcp_servers directory
-  - "/usr/share/doc/packages/mcphost-example-configs"  # Package example configs (if installed)
 
 # MCP Server Configuration
 # mcphost_mcp_servers is a list of server definitions
@@ -145,3 +140,9 @@ mcphost_local_servers: []             # [{name, command, description, env, cwd, 
 mcphost_endpoints: []                 # [{name, endpoint, description}]
 
 mcphost_cleanup_package: false        # Uninstall package when state=absent
+
+# ---------------------------------------------------------------------------
+# RISU agent helpers
+# ---------------------------------------------------------------------------
+
+risu_agent_root_default: "/usr/share/risu"

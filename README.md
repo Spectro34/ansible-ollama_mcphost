@@ -9,11 +9,9 @@ Composable Ansible role for provisioning [Ollama](https://ollama.com/) and the [
 - **Flexible Model Provider Support**: Ollama, OpenAI, Anthropic, Google
 - **Multiple MCP Server Types**: Builtin (filesystem, bash, http), local (command-based), and remote (URL-based)
 - **Auto-Discovery of MCP Servers**: Automatically discover and configure MCP servers from standard directories
-  - Discovers servers from `mcp_servers/` directories (YAML format)
-  - Integrates with `mcphost-example-configs` package (JSON format)
-  - Supports custom MCP servers in `~/mcp_servers/`
+- Discovers servers from `roles/ansible-ollama_mcphost/mcp_servers/` (shipped examples) and `~/mcp_servers/`
 - **SLE16 Support**: Explicit support for SUSE Linux Enterprise 16.0 with automatic repository configuration
-- **Example Configurations**: Works seamlessly with `mcphost-example-configs` package examples
+- **Example Configurations**: Ready-to-use samples (filesystem, bash-commands, web-fetcher, RISU agent, etc.) already live under `roles/ansible-ollama_mcphost/mcp_servers/`
 - **GPU Support**: Optional GPU acceleration for Ollama (ROCm, CUDA)
 - **Comprehensive Configuration**: Full support for all mcphost configuration options
 
@@ -21,82 +19,113 @@ Composable Ansible role for provisioning [Ollama](https://ollama.com/) and the [
 
 ### Installation
 
-#### Option 1: Install to Default Roles Path (Recommended)
+#### Option 1: Run the playbook in-place (Recommended)
 
-This allows the role to be used from anywhere:
-
-```bash
-git clone https://github.com/Spectro34/ansible-ollama_mcphost.git
-cd ansible-ollama_mcphost
-./install-symlink.sh
-```
-
-The role will be available as `ansible-ollama_mcphost` in all playbooks.
-
-#### Option 2: Use Directly from Repository
+`deploy.yml` contains everything. Just run it—there’s no need to edit files or wire up roles paths manually (the bundled `ansible.cfg` already points Ansible at this checkout). Every MCP server placed under `roles/ansible-ollama_mcphost/mcp_servers/` (or `~/mcp_servers`) is picked up automatically:
 
 ```bash
 git clone https://github.com/Spectro34/ansible-ollama_mcphost.git
 cd ansible-ollama_mcphost
 ansible-playbook deploy.yml
-# or use a specific example
-ansible-playbook examples/sle16-example.yml
+```
+
+#### Option 2: Reference the role from your own playbooks
+
+If you want to call the role from other playbooks or CI jobs, either clone it into a directory that already lives in `ANSIBLE_ROLES_PATH` or temporarily extend the path when running Ansible:
+
+```bash
+git clone https://github.com/Spectro34/ansible-ollama_mcphost.git
+cd ansible-ollama_mcphost
+ANSIBLE_ROLES_PATH=$(pwd):${ANSIBLE_ROLES_PATH:-$HOME/.ansible/roles} \
+  ansible-playbook your-playbook.yml
 ```
 
 ### Basic Usage
 
-**Simplest way (recommended):**
+**Standard flow (interactive CLI wrapper):**
 ```bash
 ./deploy.sh
 ```
 
-**Or using playbook directly:**
+The wrapper walks you through every core setting (model tag, GPU toggle, auto-discovery,
+MCP servers, API key, system prompt). Accept the defaults by pressing **Enter**, or pass
+flags (e.g., `./deploy.sh --model qwen2.5:14b --enable-gpu --servers filesystem`).
+Run `./deploy.sh --help` to see every option and how to forward extra arguments to
+`ansible-playbook`.
+When you finish the short questionnaire the script simply shells out to
+`ansible-playbook deploy.yml` with the collected settings.
+
+**For CI / advanced users:**
 ```bash
 ansible-playbook deploy.yml
 ```
 
-**Note:** The role now integrates with `mcphost-example-configs` package. Examples like minimal, medium-reasoning, high-reasoning, monitoring, and built-ins are available from the package and can be selected using `./deploy.sh --servers <server1,server2>`. For detailed documentation, examples, and configuration reference, see the package documentation at `/usr/share/doc/packages/mcphost-example-configs/` (after installation).
+The bare playbook no longer prompts; it reads everything from `-e` overrides or the
+defaults shown below. By default it installs Ollama + mcphost and writes `~/.mcphost.yml`,
+but **it does not enable any MCP servers** until you either set `auto_discover=true` or
+pass a list via `-e "mcp_servers=['filesystem']"`. This keeps first runs predictable.
 
-### Everyday Commands
+Need to override something? Pass `-e` values when running Ansible—for example:
 
-- `./deploy.sh` — install Ollama + mcphost with all discovered servers.
-- `./deploy.sh --servers filesystem,bash-commands,risu-insights` — only enable the listed servers (use exact server names such as `bash-commands`, not shorthand like `bash`).
-- `./deploy.sh --enable-gpu --gpu-runtime rocm` — turn on GPU acceleration (use `cuda` if needed).
-- `./deploy.sh update` — re-run configuration after changing configs or secrets.
-- `./deploy.sh remove` — uninstall everything, honoring cleanup flags.
-- `./deploy.sh status` — sanity check that services, configs, and models are in place.
+```bash
+ansible-playbook deploy.yml \
+  -e "mcp_servers=['filesystem','bash-commands']" \
+  -e "model=qwen2.5:14b" \
+  -e "gpu_enabled=true" \
+  -e "gpu_runtime=cuda"
+```
 
-Each command is just a wrapper around `ansible-playbook deploy.yml`, so any additional Ansible variables can be passed with `ANSIBLE_EXTRA_VARS` or by editing `deploy.yml`.
+**Note:** The repository ships with ready-to-use MCP server examples under `roles/ansible-ollama_mcphost/mcp_servers/`. Drop your own servers into that directory (or `~/mcp_servers`) and rerun the playbook to pick them up automatically.
+
+### Core Operations
+
+- `./deploy.sh` — interactive, default CPU-only Ollama and **no** MCP servers until you opt-in.
+- `./deploy.sh --no-prompt --model qwen2.5:14b --enable-gpu --servers filesystem` — skip questions and drive everything through CLI flags.
+- `ansible-playbook deploy.yml -e "mcp_servers=['filesystem','bash-commands']"` — run Ansible directly (CI-friendly).
+- `ansible-playbook deploy.yml -e "gpu_enabled=true" -e "gpu_runtime=cuda"` — enable GPU acceleration explicitly.
+- `ansible-playbook deploy.yml -e "ollama_state=absent" -e "mcphost_state=absent"` — remove everything that was previously installed.
+
+Combine any number of `-e` overrides to match your environment; otherwise the defaults are used.
 
 
 ### Adding MCP Servers (Easy Workflow)
 
 The role supports auto-discovery of MCP servers from multiple sources:
 
-1. **Role's `mcp_servers/` directory**: YAML format server configs (e.g., `mcp_servers/bash-example/config.yml`)
+1. **Role's `roles/ansible-ollama_mcphost/mcp_servers/` directory**: YAML format server configs (e.g., `roles/ansible-ollama_mcphost/mcp_servers/bash-example/config.yml`)
 2. **User's `~/mcp_servers/` directory**: Custom user-defined servers in YAML format
-3. **`mcphost-example-configs` package**: JSON format example configs from the package (if installed)
-
 **Example workflow:**
 
-1. **Clone MCP server repositories into `mcp_servers/` directory:**
+1. **Create (or copy) the MCP server directory under `roles/ansible-ollama_mcphost/mcp_servers/`:**
    ```bash
-   cd mcp_servers/
-   git clone https://github.com/Spectro34/risu-insights.git risu-insights
+   cd roles/ansible-ollama_mcphost/mcp_servers/
+   mkdir my-server
+   # Optional: copy files into my-server/ or drop an existing checkout there
    ```
+   The repository already ships with ready-to-use examples such as `filesystem`, `bash-commands`, `web-fetcher`, and `risu-agent`, so you can deploy immediately without adding anything new. Creating a directory is only necessary when you want to add your own server.
 
 2. **Create a `config.yml` file for each server:**
    ```bash
-   # The config.yml file should already exist in risu-insights/
-   # If not, see mcp_servers/risu-insights/README.md for setup instructions
+   cat > my-server/config.yml <<'YAML'
+   my-server:
+     type: "local"
+     command: ["./run-server.sh"]
+     cwd: "{{ server_dir }}"
+     description: "Example custom server"
+   YAML
    ```
 
-3. **Deploy - all servers are automatically discovered and merged:**
+3. **Deploy - then opt into the servers you need when prompted (CLI wrapper):**
    ```bash
+   cd ../../../..
    ./deploy.sh
-   # or select specific servers
-   ./deploy.sh --servers bash,filesystem,bash-commands
-   ```
+   # or drive it non-interactively
+   ./deploy.sh --no-prompt --servers "bash,filesystem"
+  ```
+   When the script prompts you, answer **“y”** to auto-discover every server, or
+   type the specific server names (e.g., `my-server,filesystem`) to enable only those.
+   Tip: entering `risu-agent` automatically expands to
+   `risu-agent-filesystem,risu-agent-bash`, so you only need to type the friendly alias once.
 
 **Config File Format (`config.yml`):**
 - Each `config.yml` should be in **mcphost's native format** - just the server configuration dictionary
@@ -104,27 +133,7 @@ The role supports auto-discovery of MCP servers from multiple sources:
 - Use `{{ server_dir }}` for paths relative to the server directory (automatically replaced)
 - Use `${env://VAR_NAME}` for environment variable substitution in server environment variables
 - The server name (key) should match the directory name or be unique
-- See [mcp_servers/README.md](mcp_servers/README.md) for detailed examples
-
-**Package Integration:**
-- The `mcphost-example-configs` package is **automatically installed on SLES/openSUSE** systems
-- On other systems, set `mcphost_example_configs_install: true` to install it
-- The role extracts examples from the package and converts them to YAML format in `mcp_servers/`
-- Package JSON configs are also auto-discovered directly (if package is installed)
-- Both sources use the **same server names** (e.g., `filesystem`, `bash-commands`, `web-fetcher`)
-- Use `--servers` option to select which servers to enable
-- Examples in `mcp_servers/` are populated from the package for consistency
-
-**Package Documentation and Information:**
-- The `mcphost-example-configs` package includes comprehensive documentation and example configurations
-- Package files are installed to `/usr/share/doc/packages/mcphost-example-configs/`
-- Refer to the package documentation for:
-  - Detailed MCP server configuration examples
-  - Best practices for server setup
-  - Additional configuration options and patterns
-  - Reference implementations for different use cases
-- View package contents: `rpm -ql mcphost-example-configs` (on RPM-based systems)
-- Access package documentation: `ls /usr/share/doc/packages/mcphost-example-configs/`
+- See [roles/ansible-ollama_mcphost/mcp_servers/README.md](roles/ansible-ollama_mcphost/mcp_servers/README.md) for detailed examples
 
 **API Keys:**
 - **Recommended:** Use Ansible Vault to encrypt API keys in playbooks or variable files
@@ -142,7 +151,22 @@ The role supports auto-discovery of MCP servers from multiple sources:
 - **Less secure:** Set directly: `mcphost_provider_api_key: "your-key-here"` (not recommended for production)
 - Ollama typically doesn't require API keys (uses local server)
 
-See [mcp_servers/README.md](mcp_servers/README.md) for detailed MCP server configuration.
+See [roles/ansible-ollama_mcphost/mcp_servers/README.md](roles/ansible-ollama_mcphost/mcp_servers/README.md) for detailed MCP server configuration.
+
+### RISU single-host workflows
+
+`roles/ansible-ollama_mcphost/mcp_servers/risu-agent/` packages two builtin MCP servers that enable LLMs to run RISU diagnostics interactively:
+
+- `risu-agent-filesystem` — readonly access to RISU installation (via `RISU_AGENT_ROOT`) and `/tmp` for reading RISU JSON output
+- `risu-agent-bash` — executes RISU commands (`risu -l`, `risu --list-plugins`, etc.) and ansible-playbook for remediation
+
+It's included in the default auto-discovery pass, so running `ansible-playbook deploy.yml` is enough. To run *only* the RISU agent helpers, pass `-e "mcp_servers=['risu-agent-filesystem','risu-agent-bash']"` (or simply enter `risu-agent` when the CLI wrapper asks for server names). 
+
+After deployment, run `mcphost` interactively and ask the LLM to run RISU diagnostics. The LLM will use the available MCP tools to execute RISU commands and analyze results.
+
+By default the helper points at `/usr/share/risu` (matching the packaged layout). If you have a custom checkout, set `RISU_AGENT_ROOT=/path/to/risu` in your shell before running `mcphost`.
+
+See `roles/ansible-ollama_mcphost/mcp_servers/risu-agent/README.md` for detailed instructions.
 
 ### SLE16 Installation
 
@@ -169,8 +193,6 @@ See [INSTALL.md](INSTALL.md) for detailed installation instructions.
 | `sle16_mcp_repo_enabled` | `true` | Automatically add SLE16 MCP repository when on SLES 16+ |
 | `sle16_mcp_repo_url` | `"https://download.opensuse.org/repositories/science:/machinelearning:/mcp/SLE_16.0/science:machinelearning:mcp.repo"` | SLE16 MCP repository URL |
 | `sle16_mcp_repo_name` | `"science:machinelearning:mcp"` | SLE16 MCP repository name |
-| `mcphost_example_configs_package` | `"mcphost-example-configs"` | Package name for example configs |
-| `mcphost_example_configs_install` | `true` on SLES/openSUSE, `false` otherwise | Auto-install mcphost-example-configs package on SLES/openSUSE systems |
 
 ### Ollama Configuration
 
@@ -193,6 +215,8 @@ See [INSTALL.md](INSTALL.md) for detailed installation instructions.
 
 ### mcphost Configuration
 
+> **Managed config.** Each run rewrites `~/.mcphost.yml` using the values below plus the discovered MCP servers. Adjust these variables (or edit `templates/mcphost-config.yml.j2`) if you need different defaults.
+
 #### Basic Settings
 
 | Variable | Default | Description |
@@ -202,51 +226,39 @@ See [INSTALL.md](INSTALL.md) for detailed installation instructions.
 | `mcphost_executable` | `"mcphost"` | mcphost executable name |
 | `mcphost_config_path` | `"{{ ansible_env.HOME }}/.mcphost.yml"` | Path to mcphost configuration file |
 
-#### Model Provider Configuration
+#### Model / Provider Settings
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `mcphost_model_provider` | `"ollama"` | Provider: `"ollama"`, `"openai"`, `"anthropic"`, `"google"` |
-| `mcphost_model_name` | `"{{ ollama_model }}"` | Model name (e.g., `"gpt-oss:20b"`, `"gpt-4"`, `"claude-sonnet-4-20250514"`) |
-| `mcphost_provider_url` | `"http://{{ ollama_host }}:{{ ollama_service_port }}"` | Base URL for provider API |
-| `mcphost_provider_api_key` | `""` | API key (recommended: use Ansible Vault for encryption) |
-| `mcphost_provider_api_key_env_var` | `""` | Environment variable name to read API key from (e.g., "OPENAI_API_KEY") |
-| `mcphost_tls_skip_verify` | `false` | Skip TLS certificate verification (WARNING: insecure) |
-
-#### Model Generation Parameters
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `mcphost_temperature` | `0.7` | Controls randomness (0.0-1.0) |
-| `mcphost_max_tokens` | `4096` | Maximum tokens in response |
-| `mcphost_top_p` | `0.95` | Nucleus sampling (0.0-1.0) |
-| `mcphost_top_k` | `40` | Top K tokens to sample from |
-| `mcphost_stop_sequences` | `[]` | Custom stop sequences (list of strings) |
-
-#### Agent Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `mcphost_max_steps` | `0` | Maximum agent steps (0 for unlimited) |
-| `mcphost_stream` | `true` | Enable streaming responses |
+| `mcphost_model_provider` | `"ollama"` | Provider used when bootstrapping |
+| `mcphost_model_name` | `"{{ ollama_model }}"` | Model name used when bootstrapping |
+| `mcphost_provider_url` | `"http://{{ ollama_host }}:{{ ollama_service_port }}"` | Provider URL |
+| `mcphost_provider_api_key` | `""` | API key (optional) |
+| `mcphost_provider_api_key_env_var` | `""` | Environment variable name to read API key from |
+| `mcphost_tls_skip_verify` | `false` | Skip TLS validation |
+| `mcphost_temperature` | `0.7` | Default temperature |
+| `mcphost_max_tokens` | `4096` | Default max tokens |
+| `mcphost_top_p` | `0.95` | Default top-p |
+| `mcphost_top_k` | `40` | Default top-k |
+| `mcphost_stop_sequences` | `[]` | Default stop sequences |
+| `mcphost_max_steps` | `0` | Default tool-calling steps |
+| `mcphost_stream` | `true` | Enable streaming |
 | `mcphost_debug` | `false` | Enable debug logging |
+| `mcphost_system_prompt` | `""` | Inline system prompt |
+| `mcphost_system_prompt_file` | `""` | System prompt file |
 
-#### System Prompt
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `mcphost_system_prompt` | `""` | System prompt text (empty = no system prompt) |
-| `mcphost_system_prompt_file` | `""` | Path to system prompt file (alternative to `mcphost_system_prompt`) |
+> **Need different defaults?** Edit `.mcphost.yml` after the run or adjust the variables below when invoking `ansible-playbook`.
 
 #### MCP Server Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `mcphost_mcp_servers` | `[]` | List of MCP server definitions (see MCP Server Types below) |
-| `mcphost_mcp_servers_auto_discover` | `true` | Automatically discover MCP servers from configured directories |
-| `mcphost_mcp_servers_dirs` | `["{{ role_path }}/mcp_servers", "{{ lookup('env', 'HOME') }}/mcp_servers", "/usr/share/doc/packages/mcphost-example-configs"]` | Directories to search for MCP server config files (YAML: `config.yml`, JSON: `*.json`) |
-| `mcphost_servers_base_path` | `""` | Base directory for resolving relative paths in server configurations |
-| `mcphost_cleanup_package` | `false` | Uninstall package when `mcphost_state=absent` |
+| `mcphost_mcp_servers` | `[]` | Manual MCP server definitions |
+| `mcphost_mcp_servers_auto_discover` | `true` | Automatically discover MCP servers |
+| `mcphost_mcp_servers_dirs` | `["{{ role_path }}/mcp_servers", "{{ lookup('env', 'HOME') }}/mcp_servers"]` | Directories to search for MCP server config files |
+| `mcphost_mcp_servers_filter` | `[]` | Optional filter when auto-discovering |
+| `mcphost_servers_base_path` | `""` | Base directory for resolving relative paths |
+| `mcphost_cleanup_package` | `false` | Uninstall package when state=absent |
 
 ### Legacy Variables (Deprecated)
 
@@ -328,7 +340,7 @@ mcphost_mcp_servers:
 
 The role includes several example playbooks in the `examples/` directory:
 
-**Note:** Basic examples (minimal, medium-reasoning, high-reasoning, monitoring, built-ins) are now provided by the `mcphost-example-configs` package. Install the package and use `./deploy.sh --servers <server1,server2>` to select them. The examples below show role-specific configurations.
+**Note:** Basic examples (minimal, monitoring, built-ins, RISU agent, etc.) already live under `roles/ansible-ollama_mcphost/mcp_servers/`. Drop additional servers there (or under `~/mcp_servers`) and rerun the playbook to enable them.
 
 ### SLE16 Example
 
@@ -340,7 +352,6 @@ The role includes several example playbooks in the `examples/` directory:
     - role: ansible-ollama_mcphost
       sle16_mcp_repo_enabled: true
       ollama_model: "gpt-oss:20b"
-      mcphost_example_configs_install: true
       mcphost_mcp_servers:
         - name: "filesystem"
           type: "builtin"
@@ -396,16 +407,9 @@ The role includes the following example playbooks:
 - **`examples/openai-example.yml`**: OpenAI provider configuration
 - **`examples/remote-server-example.yml`**: Remote MCP server configuration
 - **`examples/ansible-runner.yml`**: Ansible Runner MCP server integration
-- **`examples/risu-insights.yml`**: RISU Insights MCP server deployment
+- **`examples/risu-agent.yml`**: RISU diagnostics helper (filesystem + bash helpers)
 
-**Package Examples:** The `mcphost-example-configs` package provides additional examples and documentation:
-- Minimal configuration
-- Medium and high reasoning configurations
-- System monitoring setup
-- Built-in tools reference
-- Comprehensive documentation and configuration guides
-
-For detailed documentation and examples, refer to the package files at `/usr/share/doc/packages/mcphost-example-configs/` after installation.
+Need more? Add your own MCP servers under `roles/ansible-ollama_mcphost/mcp_servers/` (or `~/mcp_servers`) and rerun the playbook—they’ll be merged automatically.
 
 ## Deployment Types
 
@@ -480,38 +484,41 @@ Connect to multiple MCP servers (local and remote):
           url: "https://api.example.com/mcp"
 ```
 
-### 5. RISU Insights Server Setup
+### 5. RISU Agent Example
 
-Deploy RISU Insights MCP server (requires server setup first):
+The RISU agent helper (filesystem + constrained bash servers) already lives in this repository under
+`roles/ansible-ollama_mcphost/mcp_servers/risu-agent/`. No cloning or
+additional setup is required—just run the standard playbook.
 
 ```bash
-# 1. Clone the repository
-cd mcp_servers/
-git clone https://github.com/Spectro34/risu-insights.git risu-insights
+# Deploy with every bundled MCP server (RISU agent included)
+ansible-playbook deploy.yml
 
-# 2. Set up dependencies
-cd risu-insights
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
-# 3. Deploy using the role
-cd ../..
-./deploy.sh --servers risu-insights --enable-gpu --gpu-runtime rocm
+# Limit the deployment to only the RISU agent helpers
+ansible-playbook deploy.yml \
+  -e "mcp_servers=['risu-agent-filesystem','risu-agent-bash']"
 ```
 
-Or use the example playbook:
+After deployment, run `mcphost` interactively and ask the LLM to run RISU diagnostics.
+
+Need a dedicated playbook? Use `examples/risu-agent.yml`:
 
 ```yaml
 - hosts: localhost
+  become: true
   roles:
     - role: ansible-ollama_mcphost
-      ollama_gpu_enabled: true
-      ollama_gpu_runtime: "rocm"
-      # risu-insights will be auto-discovered from mcp_servers/risu-insights/config.yml
+      ollama_gpu_enabled: true          # Optional
+      ollama_gpu_runtime: "rocm"        # or "cuda"
+      mcphost_mcp_servers_auto_discover: true
+      # RISU agent servers are discovered automatically from
+      # roles/ansible-ollama_mcphost/mcp_servers/risu-agent/
+      # Set RISU_AGENT_ROOT to point at a different checkout if needed.
 ```
 
-See [mcp_servers/risu-insights/README.md](mcp_servers/risu-insights/README.md) for detailed setup instructions.
+Set the `RISU_AGENT_ROOT` environment variable (or edit the files under
+`roles/ansible-ollama_mcphost/mcp_servers/risu-agent/`) if you want the helper
+to inspect a different RISU checkout.
 
 ### 6. SLE16 Enterprise Deployment
 
@@ -523,7 +530,6 @@ SLE16-specific deployment with example configs:
   roles:
     - role: ansible-ollama_mcphost
       sle16_mcp_repo_enabled: true
-      mcphost_example_configs_install: true
       ollama_model: "gpt-oss:20b"
       mcphost_mcp_servers:
         - name: "filesystem"

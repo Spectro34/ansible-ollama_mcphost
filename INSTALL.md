@@ -1,88 +1,53 @@
 # Installation Guide
 
-## Quick Installation
+## Quick installation (recommended)
 
-This role can be used from anywhere by creating a symlink to the default Ansible roles path.
-
-### Automatic Installation
-
-Run the installation script:
+Use the provided playbook directly from the cloned repository—no symlink or wrapper script is required. Run it as-is to accept the defaults, or pass `-e` overrides if you need something specific. The bundled `ansible.cfg` already adds the current directory to `roles_path`, so Ansible can find the role automatically.
 
 ```bash
-./install-symlink.sh
+git clone https://github.com/Spectro34/ansible-ollama_mcphost.git
+cd ansible-ollama_mcphost
+ansible-playbook deploy.yml
 ```
 
-### Manual Installation
+That command configures Ollama, mcphost, and any selected MCP servers in one pass. Re-run it whenever you change variables or want to remove/update the deployment (e.g., `ansible-playbook deploy.yml -e "ollama_state=absent" -e "mcphost_state=absent"` to uninstall).
 
-Create a symlink to the default Ansible roles path:
+## Using the role inside your own playbooks
 
-```bash
-# Create roles directory if it doesn't exist
-mkdir -p ~/.ansible/roles
+If you prefer to call the role from custom playbooks or CI pipelines, you have two options:
 
-# Create symlink (adjust path as needed)
-ln -sf $(pwd) ~/.ansible/roles/ansible-ollama_mcphost
-```
+1. **Extend `ANSIBLE_ROLES_PATH` when running Ansible** (simple, no additional install):
+   ```bash
+   git clone https://github.com/Spectro34/ansible-ollama_mcphost.git
+   cd ansible-ollama_mcphost
+   ANSIBLE_ROLES_PATH=$(pwd):${ANSIBLE_ROLES_PATH:-$HOME/.ansible/roles} \
+     ansible-playbook your-playbook.yml
+   ```
+2. **Copy the role into an existing roles directory** (persistent):
+   ```bash
+   git clone https://github.com/Spectro34/ansible-ollama_mcphost.git
+   mkdir -p ~/.ansible/roles
+   cp -a ansible-ollama_mcphost ~/.ansible/roles/ansible-ollama_mcphost
+   ```
 
-### Verify Installation
-
-Check that the role is accessible:
-
-```bash
-# List installed roles
-ansible-galaxy role list
-
-# Or test with a playbook
-ansible-playbook -e "roles_path=~/.ansible/roles" your-playbook.yml
-```
-
-## Using the Role
-
-Once installed, you can use the role from anywhere:
+After either approach, include the role normally:
 
 ```yaml
 - hosts: localhost
   roles:
     - role: ansible-ollama_mcphost
       ollama_model: "gpt-oss:20b"
-      mcphost_mcp_servers:
-        - name: "filesystem"
-          type: "builtin"
-          builtin_name: "fs"
-          options:
-            allowed_directories: ["/tmp"]
 ```
 
-## Alternative: Using roles_path
+## Verification
 
-You can also specify the roles path directly in your playbook or ansible.cfg:
-
-```yaml
-# In ansible.cfg
-[defaults]
-roles_path = ~/.ansible/roles:/path/to/other/roles
-```
-
-Or in your playbook:
+Run a simple playbook (or one of the examples under `examples/`) with `ANSIBLE_ROLES_PATH` pointing at the clone/copy to confirm everything resolves correctly:
 
 ```bash
-ansible-playbook -e "roles_path=~/.ansible/roles" your-playbook.yml
+ANSIBLE_ROLES_PATH=/path/to/ansible-ollama_mcphost ansible-playbook examples/openai-example.yml
 ```
 
-## Uninstallation
+## Removal
 
-To remove the symlink:
-
-```bash
-rm ~/.ansible/roles/ansible-ollama_mcphost
-```
-
-## System-wide Installation (Optional)
-
-For system-wide access (requires root):
-
-```bash
-sudo mkdir -p /usr/share/ansible/roles
-sudo ln -sf $(pwd) /usr/share/ansible/roles/ansible-ollama_mcphost
-```
-
+- If you run the role straight from the repository, simply delete the clone directory.
+- If you copied it into `~/.ansible/roles`, remove that directory: `rm -rf ~/.ansible/roles/ansible-ollama_mcphost`.

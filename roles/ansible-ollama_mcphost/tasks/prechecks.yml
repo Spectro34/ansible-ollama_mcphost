@@ -1,12 +1,4 @@
 ---
-- name: Verify supported platform
-  ansible.builtin.assert:
-    that:
-      - ansible_system is defined
-      - ansible_system | lower == 'linux'
-    fail_msg: "ansible-ollama_mcphost currently supports Linux targets only (detected {{ ansible_system | default('unknown') }})."
-  tags: ['always']
-
 - name: Validate GPU runtime selection
   ansible.builtin.assert:
     that:
