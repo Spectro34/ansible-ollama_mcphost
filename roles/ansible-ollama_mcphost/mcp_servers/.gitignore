@@ -4,7 +4,17 @@
 !.gitignore
 !README.md
 !*/config.yml.example
-# Allow bundled examples - must be before the * pattern
+# Allow bundled examples (filesystem, bash-commands, web-fetcher, risu-agent, etc.)
+!filesystem/
+!filesystem/config.yml
+!bash-commands/
+!bash-commands/config.yml
+!web-fetcher/
+!web-fetcher/config.yml
+!filesystem_tmp_rw/
+!filesystem_tmp_rw/config.yml
+!filesystem_etc_ro/
+!filesystem_etc_ro/config.yml
 !risu-agent/
 !risu-agent/config.yml
 !risu-agent/README.md

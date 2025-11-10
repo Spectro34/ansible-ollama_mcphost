@@ -1,0 +1,10 @@
+filesystem_tmp_rw:
+  type: builtin
+  name: fs
+  options:
+    allowed_directories:
+    - /tmp
+  allowedTools:
+  - read_file
+  - write_file
+  - list_directory

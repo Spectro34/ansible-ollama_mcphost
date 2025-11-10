@@ -1,0 +1,6 @@
+filesystem:
+  type: builtin
+  name: fs
+  options:
+    allowed_directories:
+    - /tmp

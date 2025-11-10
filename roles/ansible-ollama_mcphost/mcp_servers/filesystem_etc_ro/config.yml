@@ -1,0 +1,9 @@
+filesystem_etc_ro:
+  type: builtin
+  name: fs
+  options:
+    allowed_directories:
+    - /etc
+  allowedTools:
+  - read_file
+  - list_directory
