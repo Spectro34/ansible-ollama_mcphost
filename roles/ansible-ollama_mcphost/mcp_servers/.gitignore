@@ -4,4 +4,9 @@
 !.gitignore
 !README.md
 !*/config.yml.example
+# Allow bundled examples - must be before the * pattern
+!risu-agent/
+!risu-agent/config.yml
+!risu-agent/README.md
+!risu-agent/system-prompt
 

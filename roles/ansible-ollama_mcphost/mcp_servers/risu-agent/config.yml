@@ -1,0 +1,23 @@
+{% set risu_root_default = risu_agent_root_default | default('/usr/share/risu') %}
+{% set risu_env_expr = '${env://RISU_AGENT_ROOT:-' ~ risu_root_default ~ '}' %}
+{% set risu_repo_root = server_dir %}
+
+risu-agent-filesystem:
+  type: "builtin"
+  name: "fs"
+  options:
+    allowed_directories:
+      - "{{ risu_env_expr }}"
+      - "{{ risu_repo_root }}"
+      - "/tmp"
+  allowedTools:
+    - "read_file"
+    - "list_directory"
+
+risu-agent-bash:
+  type: "builtin"
+  name: "bash"
+  environment:
+    RISU_AGENT_ROOT: "{{ risu_root_default }}"
+    RISU_OUTPUT_JSON: "/tmp/risu-output.json"
+  description: "Run RISU diagnostics commands (`risu -l`, `risu --list-plugins`, etc.)"
